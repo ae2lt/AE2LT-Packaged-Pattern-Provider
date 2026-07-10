@@ -4,7 +4,7 @@ import java.util.Objects;
 import java.util.function.BiPredicate;
 import java.util.function.Function;
 
-import com.moakiee.ae2lt.overload.model.MatchMode;
+import com.moakiee.thunderbolt.ae2.overload.model.MatchMode;
 
 final class AtomicReconstructorOutputMatcher {
 

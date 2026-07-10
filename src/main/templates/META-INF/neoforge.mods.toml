@@ -41,6 +41,13 @@ ordering = "AFTER"
 side = "BOTH"
 
 [[dependencies."${mod_id}"]]
+modId = "thunderbolt"
+type = "required"
+versionRange = "${thunderbolt_version_range}"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies."${mod_id}"]]
 modId = "ars_nouveau"
 type = "optional"
 versionRange = "[0,)"

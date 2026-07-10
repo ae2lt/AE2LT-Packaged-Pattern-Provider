@@ -559,22 +559,17 @@ public class PackagedPatternProviderLogic extends OverloadedPatternProviderLogic
     // ===== Output delivery =====
 
     /**
-     * Override parent's "drop on power shortage" insertion so packaged provider
-     * never silently swallows products.
+     * Inserts packaged-provider outputs without silently swallowing products.
      *
-     * <p>Parent contract: products that can't be paid for are dropped on the floor
-     * (see {@code OverloadedPatternProviderLogic#insertOutputsToReturnInv} —
-     * any stack whose {@code maxAffordable <= 0} hits {@code continue} and is lost).
-     * That's fine for vanilla auto-return because the items are still sitting in
-     * the remote machine and we'll re-poll them. It's catastrophic for virtual
-     * crafts, because AE has already consumed the inputs and the products only
-     * exist inside our batch accumulator.
+     * <p>AE2LT's machine auto-return now uses transactional output sinks, but
+     * virtual crafts produce their outputs directly inside this addon's batch
+     * accumulator. If the grid cannot currently pay for or accept those outputs,
+     * they must remain queued here because there is no remote machine to re-poll.
      *
      * <p>This override delivers whatever the grid can pay for right now, then
      * pushes any leftover back into {@link #virtualBatch} so the next flush (or
      * the next time energy is available) can finish delivering it.
      */
-    @Override
     protected void insertOutputsToReturnInv(List<GenericStack> outputs) {
         if (outputs.isEmpty()) {
             return;
