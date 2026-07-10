@@ -9,21 +9,28 @@ item_ids:
 
 # AE2LT Packaged Pattern Provider
 
-The **Packaged Pattern Provider** (and its wireless version) lets AE2 autocrafting drive
-crafting machines from **other mods**. You choose which machine by inserting a single
-**Packaged Core** into the provider.
+`Congratulations on making it this far! This is the pinnacle of the lightning power you have mastered!`
 
-## How it works (the same 4 steps for every machine)
+The **Packaged Pattern Provider** (and its wireless version) lets AE2 autocrafting drive crafting machines from **other mods**, greatly simplifying automation setups that would otherwise be complex and inefficient.
+~~`Although it seems you still need a thorough understanding of these crafting structures...`~~
+Insert the corresponding **Packaged Core** into the provider to select the type of machine it will control.
+
+## General usage
 
 1. Place a (Wireless) Packaged Pattern Provider **touching the target machine's main block / core**.
-2. Put the matching **Packaged Core** into the provider's *Packaged Core* slot. One provider serves one machine family at a time.
-3. Insert the machine's recipe as a **pattern**, exactly like a normal Pattern Provider (encode inputs → output).
-4. When AE2 crafts that output, the provider supplies the ingredients (or crafts instantly) and the finished product flows back into your ME network.
+2. Put the matching Packaged Core into the provider's **Packaged Core slot**. Each provider can serve only one type of machine at a time.
+3. As with a normal Pattern Provider, encode the recipe as a **processing pattern** and insert it.
+4. When AE2 requests the output, the provider reads the machine recipe (including custom recipes), sends the ingredients to the machine, and automatically returns the completed result to your ME network.
 
-> Multiblock machines still have to be built with their own normal structure
-> (injectors, pedestals, stands, altars …). Place the provider against the **main/core** block.
+> The Packaged Pattern Provider behaves much like a simulated player. Multiblock machines must still be built according to **their own structure**, with the provider touching the **main block / core**. You must also supply the machine with enough power, mana, Source, or other required resources.
 >
-> Machines marked **⚠** need something extra — read their page before using them.
+> If a craft cannot be dispatched correctly, check that the machine structure is complete, the machine contains no leftover items, and the correct Packaged Core is installed.
+>
+> A very small number of recipes, such as Occultism Spirit Fire crafting, cannot use the Wireless Packaged Pattern Provider. If a recipe does not work, try a regular Packaged Pattern Provider.
+>
+> If materials are not returned correctly, check that automatic return is enabled on the provider.
+>
+> Machines marked **⚠** have additional requirements—read their individual pages before using them.
 
 ## Supported machines
 

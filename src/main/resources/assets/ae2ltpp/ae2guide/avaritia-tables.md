@@ -20,8 +20,7 @@ item_ids:
 **Mod:** Re-Avaritia
 
 Automates the Sculk 3×3, Nether 5×5, End 7×7, and Extreme 9×9 crafting tables.
-Place the provider against a table and encode the table recipe as a pattern. The result and any
-crafting remainders are returned instantly.
+Place the provider against a table and encode the corresponding **processing pattern**. The provider automatically retrieves the crafted result and any crafting remainders, such as empty buckets.
 
 ## ⚠ One packaged core covers lower tiers
 
@@ -32,3 +31,4 @@ works on Extreme / End / Nether / Sculk, an End Table core works on End / Nether
 
 * The table's crafting grid must be empty while the provider is crafting.
 * Recipes that inherit the output from the input item still keep their normal Re-Avaritia behavior.
+`A crafting table, a big crafting table, a bigger crafting table, and an even bigger crafting table.`

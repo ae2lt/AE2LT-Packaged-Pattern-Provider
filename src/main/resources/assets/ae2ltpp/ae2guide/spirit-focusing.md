@@ -13,13 +13,12 @@ item_ids:
 **Packaged Core:** <ItemLink id="ae2ltpp:malum_spirit_focusing_packaged_core" />
 **Mod:** Malum
 
-Automates Spirit Crucible focusing. Place the provider against the **Spirit Crucible** and encode the
-recipe as a pattern. Each craft, the provider inserts the recipe's **catalyst** first, then the required
-**spirit shards**, and returns both the result and the catalyst when focusing finishes.
+Automatically performs Spirit Focusing in the Spirit Crucible.
+Place the provider against the **Spirit Crucible** and encode the corresponding **processing pattern**.
+For each craft, the provider performs Spirit Focusing automatically, then retrieves the result and the augments when focusing finishes.
+The provider starts only when the Crucible is idle and its slots are empty.
 
-## ⚠ Encode the catalyst as an input
+## ⚠ Augments, ingredients, and patterns
 
-Do not leave the catalyst pre-installed in the crucible; the provider only starts while the crucible is idle
-with empty input slots. Encode both the **catalyst** and the **spirit shards** as pattern inputs, with only
-the focusing result as the pattern output. The catalyst is not consumed by the Malum recipe and is returned
-to your ME network after the craft.
+* When encoding the pattern, include every **augment** and **spirit shard** used by the recipe as pattern inputs. The only pattern output should be the focusing result.
+* Augments are not consumed by Malum recipes. They are returned to your ME network together with the result after Spirit Focusing finishes.

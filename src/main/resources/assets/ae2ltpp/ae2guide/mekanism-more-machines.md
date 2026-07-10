@@ -13,9 +13,12 @@ item_ids:
 **Packaged Core:** <ItemLink id="ae2ltpp:mekmm_packaged_core" />
 **Mod:** Mekanism: More Machines
 
-A single packaged core drives **all** of the mod's large multiblock machines. Build the machine, place the
-provider against its **controller**, install this one packaged core, and encode the recipe as a pattern — the
-provider detects which machine it's facing automatically.
+A single Packaged Core can drive **all** large multiblock machines from this mod.
+Build the machine, place the provider against it, install the Packaged Core, and encode the corresponding **processing pattern**. The provider automatically detects the type of machine it faces and retrieves the crafting result.
+
+* Item, fluid, and chemical inputs in the pattern are automatically sent to the corresponding ports.
+
+`Editor's note: This has not yet been tested with much precision. In practice, the provider does not appear to need to be near a so-called controller block and only needs to touch the large machine. If that does not work, try linking the Wireless version to the center block on the top or bottom of the machine, or place the regular version against one of those blocks. This text will be corrected after further testing.`
 
 ## Covered machines
 
@@ -28,6 +31,4 @@ provider detects which machine it's facing automatically.
 
 ## Notes
 
-* The machine still needs its normal **energy**.
-* Item, fluid, and Mekanism chemical inputs in the pattern are routed to the matching machine ports automatically.
-* One packaged core is enough no matter which of the above machines sits in front of the provider.
+* The machine still needs its own **energy**. Keep it adequately powered.

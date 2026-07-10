@@ -13,15 +13,11 @@ item_ids:
 **Packaged Core:** <ItemLink id="ae2ltpp:ars_apparatus_packaged_core" />
 **Mod:** Ars Nouveau
 
-Automates Enchanting Apparatus recipes. Place the provider against the Apparatus and encode the
-recipe as a pattern. The provider puts the reagent on the Apparatus and the other items on the
-surrounding pedestals, then returns the result.
+Automatically performs Enchanting Apparatus recipes. Place the provider against the Enchanting Apparatus and encode the corresponding **processing pattern**. The provider automatically recognizes the recipe, distributes the ingredients to the appropriate positions, and retrieves the result when crafting finishes.
 
-## Structure & cost
+## Notes
 
-* An **Arcane Core** must sit directly behind the Apparatus (matching its facing axis), as usual.
-* The recipe's items go on **Arcane Pedestals / Arcane Platforms** within **3 blocks** of the Apparatus.
-* Recipes that cost **Source** draw it from nearby **Source Jars** (within 10 blocks) — keep them filled.
+* Build the complete multiblock crafting structure according to the Ars Nouveau Worn Notebook. Make sure the number of Arcane Pedestals and/or Arcane Platforms is at least the number of recipe items, so there is enough room to distribute every ingredient.
+* Keep a Source Jar with enough Source within 10 blocks of the Enchanting Apparatus, or recipes that require Source cannot begin.
 * Before starting, the Apparatus and every Arcane Pedestal / Arcane Platform within 3 blocks must be empty.
-
-The pedestal items here are normal ingredients and **are consumed** by the recipe.
+`Clearly, delicate magical instruments are easily disturbed by stray items.`

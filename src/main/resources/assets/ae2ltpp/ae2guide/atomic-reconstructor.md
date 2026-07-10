@@ -13,13 +13,11 @@ item_ids:
 **Packaged Core:** <ItemLink id="ae2ltpp:aa_reconstructor_packaged_core" />
 **Mod:** Actually Additions
 
-Automates the Atomic Reconstructor's laser conversions (one input item → one output item).
-Place the provider against the Atomic Reconstructor, encode the conversion as a pattern, and the
-result is returned instantly — no item entity is spawned.
+Place the provider against the Atomic Reconstructor and encode the corresponding **processing pattern**.
 
-## Requirements
+No additional setup is required. The provider recognizes the Atomic Reconstructor's laser conversion recipes, performs the craft, and returns the converted result.
 
-* The Reconstructor still needs **power (RF/CF)**. Each conversion draws energy just like a manual one;
-  if it runs dry, the craft simply waits until it has charge again.
-* Only the **default conversion lens** works. Specialised lenses (mining, death, color, …) are ignored,
-  because their side effects can't be automated safely.
+## Notes
+
+* The Reconstructor needs an adequate power supply. Crafting pauses when it runs out of power and resumes once power is available again.
+* **Only the default Conversion Lens works.** Other special lenses (Mining, Death, Color, and so on) are ignored because their additional effects cannot be automated safely.

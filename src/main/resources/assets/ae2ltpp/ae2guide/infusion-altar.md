@@ -13,12 +13,10 @@ item_ids:
 **Packaged Core:** <ItemLink id="ae2ltpp:ma_infusion_altar_packaged_core" />
 **Mod:** Mystical Agriculture
 
-Automates Infusion Altar recipes (seed/essence crafting). Place the provider against the Infusion Altar
-and encode the recipe as a pattern. The provider lays the center item on the altar and the rest on the
-pedestals, then returns the result.
+Automatically performs Infusion Altar recipes. Place the provider against the Infusion Altar and encode the corresponding **processing pattern**.
+The provider distributes the ingredients to the appropriate positions and retrieves the result when crafting finishes.
 
 ## Structure
 
-* 1 Infusion Altar + **8 Infusion Pedestals** at the standard fixed offsets around it
-  (the normal Infusion Altar layout). Build it as you would for manual use.
+* Complete the multiblock structure according to the guide shown by the altar's main block.
 * Before starting, the altar input/output slots and all 8 Infusion Pedestals must be empty.

@@ -13,13 +13,9 @@ item_ids:
 **Packaged Core:** <ItemLink id="ae2ltpp:botania_runic_altar_packaged_core" />
 **Mod:** Botania
 
-Automates Runic Altar recipes. Place the provider against the Runic Altar and encode the recipe as a
-pattern. The provider feeds the inputs into the altar; once it has gathered enough mana the result is
-produced and returned (you don't need to right-click with a wand).
+Automatically performs Runic Altar recipes. Place the provider against the Runic Altar and encode the corresponding **processing pattern**. The provider sends the ingredients into the altar, and once it has accumulated enough mana, the result is produced and returned (you do not need to right-click it with a wand).
 
 ## ⚠ Mana & recycled rune catalysts
 
 * The altar needs **mana** from your mana spreaders — keep it supplied.
-* For recipes with catalyst runes, encode consumed ingredients + catalyst runes as inputs, and encode the
-  primary result + each returned catalyst rune as outputs.
-* If the outputs only declare the primary result, AE2 will not count the returned runes for this craft.
+* In general, runes used as Runic Altar inputs act as catalysts. In addition to encoding the pattern normally, add those runes to the pattern's byproduct outputs. Otherwise, large crafting requests may cause AE2 to craft large numbers of the catalyst runes as well.

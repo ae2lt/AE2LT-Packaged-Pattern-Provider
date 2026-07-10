@@ -13,11 +13,9 @@ item_ids:
 **Packaged Core:** <ItemLink id="ae2ltpp:avaritia_extreme_smithing_packaged_core" />
 **Mod:** Re-Avaritia
 
-Automates Re-Avaritia's Extreme Smithing recipes. Place the provider against the **Extreme
-Smithing Table** and encode the recipe as five inputs: template, base, and three matching addition
-items. The crafted result is returned instantly.
+Place the provider against the Extreme Smithing Table and encode the corresponding **processing pattern**.
 
-## Notes
+The provider recognizes the recipe, performs the craft, and retrieves the crafted result.
 
-* Each craft consumes one item from each of the five recipe slots.
-* The result keeps Re-Avaritia's normal smithing behavior, including components inherited from the base item.
+* The result preserves Re-Avaritia's normal smithing behavior, including components inherited from the base item, such as enchantments and custom names.
+`They say it can be used to forge the world itself?`

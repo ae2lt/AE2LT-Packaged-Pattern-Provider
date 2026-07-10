@@ -13,13 +13,10 @@ item_ids:
 **Packaged Core:** <ItemLink id="ae2ltpp:ma_awakening_altar_packaged_core" />
 **Mod:** Mystical Agriculture
 
-Automates Awakening Altar recipes. Place the provider against the Awakening Altar and encode the recipe
-as a pattern. The provider places the items and returns the result.
+Automatically performs Awakening Altar recipes. Place the provider against the Awakening Altar and encode the corresponding **processing pattern**. The provider automatically distributes the ingredients and retrieves the result.
 
-## ⚠ Pedestals, Vessels & Essence
+## ⚠ Notes
 
-The recipe needs the 8 surrounding positions to be exactly **4 Awakening Pedestals + 4 Essence Vessels**.
+* Complete the multiblock structure according to the guide shown by the altar's main block.
 
-Encode the inputs with the altar item, the 4 pedestal items, and the 4 required essence stacks (with the
-recipe's counts). Before starting, the altar slots, pedestals, and Essence Vessels must all be empty.
-The provider fills the essence, places the items, then starts the craft.
+* Before dispatching a craft, the altar, pedestals, and Essence Vessels must all be empty, or the ingredients cannot be distributed correctly.

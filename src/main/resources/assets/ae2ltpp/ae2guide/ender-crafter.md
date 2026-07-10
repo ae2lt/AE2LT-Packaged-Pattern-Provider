@@ -13,12 +13,13 @@ item_ids:
 **Packaged Core:** <ItemLink id="ae2ltpp:ec_ender_crafter_packaged_core" />
 **Mod:** Extended Crafting
 
-Automates the Ender Crafter (a 3×3 timed crafter). Place the provider against the Ender Crafter and
-encode the recipe as a pattern. The provider fills the grid, the machine ticks through its craft time,
-and the result is pulled back when done.
+Automatically performs Ender Crafter recipes. Place the provider against the Ender Crafter and encode the corresponding **processing pattern**.
+The provider fills the crafting grid and retrieves the result after the machine finishes crafting.
 
 ## Requirements
 
 * Needs at least one **Ender Alternator** within a 7×7×7 box around the crafter.
 * Crafting takes time (default ~60 s, faster with more alternators) — this is normal and can't be skipped.
 * Before starting, the 3×3 grid and output slot must be empty.
+`According to the calculations, the optimal number of Ender Alternators is 98, which gives the maximum crafting speed.
+Source: the wiki.`
