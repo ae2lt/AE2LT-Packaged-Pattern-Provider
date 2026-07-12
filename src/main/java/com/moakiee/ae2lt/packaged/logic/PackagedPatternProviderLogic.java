@@ -32,7 +32,6 @@ import com.moakiee.ae2lt.blockentity.OverloadedPatternProviderBlockEntity.Provid
 import com.moakiee.ae2lt.blockentity.OverloadedPatternProviderBlockEntity.ReturnMode;
 import com.moakiee.ae2lt.item.OverloadPatternItem;
 import com.moakiee.ae2lt.logic.OverloadedPatternProviderLogic;
-import com.moakiee.ae2lt.logic.SmartDoublingCompat;
 import com.moakiee.ae2lt.logic.energy.PowerCostUtil;
 import com.moakiee.ae2lt.mixin.PatternProviderLogicAccessor;
 import com.moakiee.ae2lt.packaged.blockentity.PackagedPatternProviderBlockEntity;
@@ -187,7 +186,7 @@ public class PackagedPatternProviderLogic extends OverloadedPatternProviderLogic
         if (!getGridNode().isActive()) {
             return false;
         }
-        if (!SmartDoublingCompat.containsOrUnwrapped(getAvailablePatterns(), patternDetails)) {
+        if (!getAvailablePatterns().contains(patternDetails)) {
             return false;
         }
         if (getCraftingLockedReason() != LockCraftingMode.NONE) {
@@ -559,23 +558,19 @@ public class PackagedPatternProviderLogic extends OverloadedPatternProviderLogic
     // ===== Output delivery =====
 
     /**
-     * Override parent's "drop on power shortage" insertion so packaged provider
-     * never silently swallows products.
+     * Inserts packaged/virtual outputs without silently swallowing products when
+     * the grid cannot currently pay the insertion cost.
      *
-     * <p>Parent contract: products that can't be paid for are dropped on the floor
-     * (see {@code OverloadedPatternProviderLogic#insertOutputsToReturnInv} —
-     * any stack whose {@code maxAffordable <= 0} hits {@code continue} and is lost).
-     * That's fine for vanilla auto-return because the items are still sitting in
-     * the remote machine and we'll re-poll them. It's catastrophic for virtual
-     * crafts, because AE has already consumed the inputs and the products only
-     * exist inside our batch accumulator.
+     * <p>AE2LT 1.1.3 moved its own machine extraction to a transactional output
+     * sink and no longer exposes the former insertion hook. Packaged virtual crafts
+     * still need a local delivery path because their products exist only inside our
+     * batch accumulator after AE has consumed the inputs.
      *
-     * <p>This override delivers whatever the grid can pay for right now, then
+     * <p>This method delivers whatever the grid can pay for right now, then
      * pushes any leftover back into {@link #virtualBatch} so the next flush (or
      * the next time energy is available) can finish delivering it.
      */
-    @Override
-    protected void insertOutputsToReturnInv(List<GenericStack> outputs) {
+    private void insertOutputsToReturnInv(List<GenericStack> outputs) {
         if (outputs.isEmpty()) {
             return;
         }

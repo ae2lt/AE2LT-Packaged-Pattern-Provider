@@ -75,14 +75,14 @@ cd C:\Users\Administrator\IdeaProjects\AE2-Lightning-Tech
 
 Local phase-1 verification observed an output jar similar to:
 
-`ae2lt-1.0.10.jar`
+`ae2lt-1.1.3.jar`
 
 ## Configuring AE2LT Dependency
 
 This project uses the published AE2 Lightning Tech Maven coordinate by default:
 
 ```properties
-ae2lt_maven_notation=curse.maven:ae2-lightning-tech-1527395:8135920
+ae2lt_maven_notation=maven.modrinth:ae2-lightning-tech:zotfKhYP
 ```
 
 For local AE2LT development, clear or comment `ae2lt_maven_notation`, then point Gradle at a local jar by using one of:
@@ -94,13 +94,13 @@ For local AE2LT development, clear or comment `ae2lt_maven_notation`, then point
 Example `gradle.properties` entry:
 
 ```properties
-ae2lt_jar=../AE2-Lightning-Tech/build/libs/ae2lt-1.0.11.jar
+ae2lt_jar=../AE2-Lightning-Tech/build/libs/ae2lt-1.1.3.jar
 ```
 
 Example PowerShell override:
 
 ```powershell
-$env:AE2LT_JAR="C:\Users\Administrator\IdeaProjects\AE2-Lightning-Tech\build\libs\ae2lt-1.0.11.jar"
+$env:AE2LT_JAR="C:\Project\AE2-Lightning-Tech\build\libs\ae2lt-1.1.3.jar"
 ```
 
 If no Maven coordinate is configured and the local jar cannot be found, the build fails with a clear error message instead of a vague compile failure.

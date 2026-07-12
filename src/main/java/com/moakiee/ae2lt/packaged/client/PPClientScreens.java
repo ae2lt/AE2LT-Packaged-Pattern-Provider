@@ -17,6 +17,7 @@ import net.neoforged.neoforge.client.extensions.common.RegisterClientExtensionsE
 
 import appeng.client.gui.style.StyleManager;
 
+import com.moakiee.ae2lt.api.client.PatternProviderToolbarButtonHider;
 import com.moakiee.ae2lt.packaged.AE2LTPackagedProvider;
 import com.moakiee.ae2lt.packaged.item.PackagedCoreDefinition;
 import com.moakiee.ae2lt.packaged.menu.PackagedPatternProviderMenu;
@@ -24,11 +25,6 @@ import com.moakiee.ae2lt.packaged.registry.PPItems;
 
 @EventBusSubscriber(modid = AE2LTPackagedProvider.MODID, value = Dist.CLIENT)
 public final class PPClientScreens {
-    private static final String AE2LT_TOOLBAR_BUTTON_HIDER =
-            "com.moakiee.ae2lt.api.client.PatternProviderToolbarButtonHider";
-    private static final String EXTENDED_AE_PLUS_SERVER_SETTING_BUTTON =
-            "com.extendedae_plus.client.gui.widgets.EAPServerSettingToggleButton";
-
     private PPClientScreens() {
     }
 
@@ -39,13 +35,8 @@ public final class PPClientScreens {
     }
 
     private static void registerHiddenToolbarButtons() {
-        try {
-            Class.forName(AE2LT_TOOLBAR_BUTTON_HIDER)
-                    .getMethod("registerHiddenButtonClassName", String.class)
-                    .invoke(null, EXTENDED_AE_PLUS_SERVER_SETTING_BUTTON);
-        } catch (ReflectiveOperationException ignored) {
-            // AE2LT versions before the toolbar-hiding API simply keep their old behavior.
-        }
+        PatternProviderToolbarButtonHider.registerHiddenButtonClassName(
+                PatternProviderToolbarButtonHider.EXTENDED_AE_PLUS_SERVER_SETTING_BUTTON);
     }
 
     @SubscribeEvent
