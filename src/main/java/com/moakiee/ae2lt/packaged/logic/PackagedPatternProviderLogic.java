@@ -32,7 +32,6 @@ import com.moakiee.ae2lt.blockentity.OverloadedPatternProviderBlockEntity.Provid
 import com.moakiee.ae2lt.blockentity.OverloadedPatternProviderBlockEntity.ReturnMode;
 import com.moakiee.ae2lt.item.OverloadPatternItem;
 import com.moakiee.ae2lt.logic.OverloadedPatternProviderLogic;
-import com.moakiee.ae2lt.logic.SmartDoublingCompat;
 import com.moakiee.ae2lt.logic.energy.PowerCostUtil;
 import com.moakiee.ae2lt.mixin.PatternProviderLogicAccessor;
 import com.moakiee.ae2lt.packaged.blockentity.PackagedPatternProviderBlockEntity;
@@ -187,7 +186,7 @@ public class PackagedPatternProviderLogic extends OverloadedPatternProviderLogic
         if (!getGridNode().isActive()) {
             return false;
         }
-        if (!SmartDoublingCompat.containsOrUnwrapped(getAvailablePatterns(), patternDetails)) {
+        if (!getAvailablePatterns().contains(patternDetails)) {
             return false;
         }
         if (getCraftingLockedReason() != LockCraftingMode.NONE) {
@@ -566,11 +565,11 @@ public class PackagedPatternProviderLogic extends OverloadedPatternProviderLogic
      * accumulator. If the grid cannot currently pay for or accept those outputs,
      * they must remain queued here because there is no remote machine to re-poll.
      *
-     * <p>This override delivers whatever the grid can pay for right now, then
+     * <p>This method delivers whatever the grid can pay for right now, then
      * pushes any leftover back into {@link #virtualBatch} so the next flush (or
      * the next time energy is available) can finish delivering it.
      */
-    protected void insertOutputsToReturnInv(List<GenericStack> outputs) {
+    private void insertOutputsToReturnInv(List<GenericStack> outputs) {
         if (outputs.isEmpty()) {
             return;
         }
