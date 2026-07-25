@@ -207,7 +207,7 @@ dependencies {
     // Botania 1.21.1 has no official release yet; we use the maintainer's
     // -SNAPSHOT build dropped into libs/. All adapter code reaches into
     // Botania via reflection, so it is runtime-only (no compileOnly needed).
-    runtimeOnly files("libs/botania-neoforge-1.21.1-454-SNAPSHOT.jar")  // 454-SNAPSHOT      (botania/)
+    runtimeOnly files("libs/botania-neoforge-1.21.1-455-SNAPSHOT.jar")  // 455-SNAPSHOT      (botania/)
 
     // QoL: 中文拼音搜索(JEI 友好)
     runtimeOnly "maven.modrinth:justenoughcharacters:TdUA8TeZ"         // 4.5.23

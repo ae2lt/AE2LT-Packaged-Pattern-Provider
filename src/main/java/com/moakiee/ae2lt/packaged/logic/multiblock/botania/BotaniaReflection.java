@@ -6,7 +6,9 @@ import java.lang.reflect.Method;
 import java.util.Optional;
 import java.util.function.IntFunction;
 
+import com.mojang.logging.LogUtils;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
 
 import net.minecraft.world.Container;
 import net.minecraft.world.item.ItemStack;
@@ -33,6 +35,7 @@ import com.moakiee.ae2lt.packaged.logic.multiblock.ReflectionSupport;
 public final class BotaniaReflection {
 
     public static final String MOD_ID = "botania";
+    private static final Logger LOG = LogUtils.getLogger();
 
     // ===== Class names (kept here for one-place updates if Botania renames) =====
 
@@ -230,16 +233,22 @@ public final class BotaniaReflection {
                     .getConstructor(ItemStack[].class);
 
             var typeHolder = Class.forName(CLS_BOTANIA_RECIPE_TYPES);
-            manaInfusionType = (RecipeType<?>) typeHolder.getField("MANA_INFUSION_TYPE").get(null);
-            elvenTradeType = (RecipeType<?>) typeHolder.getField("ELVEN_TRADE_TYPE").get(null);
-            petalType = (RecipeType<?>) typeHolder.getField("PETAL_TYPE").get(null);
-            runeType = (RecipeType<?>) typeHolder.getField("RUNE_TYPE").get(null);
-            terraPlateType = (RecipeType<?>) typeHolder.getField("TERRA_PLATE_TYPE").get(null);
+            manaInfusionType = recipeType(typeHolder, "MANA_INFUSION_TYPE");
+            elvenTradeType = recipeType(typeHolder, "ELVEN_TRADE_TYPE");
+            petalType = recipeType(typeHolder, "PETAL_APOTHECARY_TYPE", "PETAL_TYPE");
+            runeType = recipeType(typeHolder, "RUNIC_ALTAR_TYPE", "RUNE_TYPE");
+            terraPlateType = recipeType(typeHolder, "TERRA_PLATE_TYPE");
 
             available = true;
-        } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
             available = false;
+            LOG.warn("Botania reflection initialization failed; all Botania adapters are disabled", e);
         }
+    }
+
+    private static RecipeType<?> recipeType(Class<?> owner, String... fieldNames)
+            throws ReflectiveOperationException {
+        return (RecipeType<?>) BotaniaRecipeTypeFields.staticFieldValue(owner, fieldNames);
     }
 
     @Nullable
