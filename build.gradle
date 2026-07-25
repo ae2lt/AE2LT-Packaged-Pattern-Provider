@@ -151,7 +151,7 @@ dependencies {
     compileOnly "top.theillusivec4.curios:curios-neoforge:${curios_version}:api"
     testImplementation "org.junit.jupiter:junit-jupiter:5.10.2"
 
-    // Thunderbolt Core owns the overload pattern model extracted from AE2LT 1.1.0.
+    // Thunderbolt Core owns the overload pattern model used by AE2LT 2.0.0.
     compileOnly "com.moakiee.thunderbolt:thunderbolt:${thunderbolt_version}"
     testRuntimeOnly "com.moakiee.thunderbolt:thunderbolt:${thunderbolt_version}"
 
