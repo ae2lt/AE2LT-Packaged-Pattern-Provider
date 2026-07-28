@@ -38,11 +38,9 @@ You need:
 - The included Gradle Wrapper
 - A Minecraft 1.21.1 NeoForge mod development environment
 
-Windows PowerShell example (adjust the JDK path for your machine):
+Windows PowerShell example:
 
 ```powershell
-$env:JAVA_HOME="C:\Program Files\Microsoft\jdk-21.0.11.10-hotspot"
-$env:Path="$env:JAVA_HOME\bin;$env:Path"
 java -version
 javac -version
 ```
@@ -57,7 +55,6 @@ For source-level debugging or cross-project integration work, clone:
 ## Building Applied Energistics 2 Locally
 
 ```powershell
-cd C:\Users\Administrator\IdeaProjects\Applied-Energistics-2
 git checkout 1.21.1
 .\gradlew.bat clean build --no-daemon
 ```
@@ -69,7 +66,6 @@ Local phase-1 verification observed an output jar similar to:
 ## Building AE2 Lightning Tech Locally
 
 ```powershell
-cd C:\Users\Administrator\IdeaProjects\AE2-Lightning-Tech
 .\gradlew.bat clean build --no-daemon
 ```
 
@@ -79,33 +75,21 @@ Local phase-1 verification observed an output jar similar to:
 
 ## Configuring AE2LT Dependency
 
-This project uses the published AE2 Lightning Tech Maven coordinate by default:
+This project resolves AE2 Lightning Tech from the local Maven repository by default:
 
 ```properties
-ae2lt_maven_notation=maven.modrinth:ae2-lightning-tech:zotfKhYP
+ae2lt_maven_notation=com.moakiee.ae2lt:AE2-Lightning-Tech:2.0.0
 ```
 
-The published coordinate is the release fallback. To validate this branch against
-AE2LT `dev/1.2`, clear or comment `ae2lt_maven_notation`, then point Gradle at the
-locally built development jar by using one of:
-
-1. `ae2lt_jar` in `gradle.properties`
-2. `AE2LT_JAR` environment variable
-3. Legacy `ae2lt_local_jar` property
-
-Example `gradle.properties` entry:
-
-```properties
-ae2lt_jar=../AE2-Lightning-Tech/build/libs/ae2lt-1.1.0.jar
-```
-
-Example PowerShell override:
+Run this from the AE2 Lightning Tech project root before building this project:
 
 ```powershell
-$env:AE2LT_JAR="C:\Project\AE2-Lightning-Tech\build\libs\ae2lt-1.1.0.jar"
+.\gradlew.bat publishToMavenLocal
 ```
 
-If no Maven coordinate is configured and the local jar cannot be found, the build fails with a clear error message instead of a vague compile failure.
+Gradle finds the artifact through `mavenLocal()` in `build.gradle`; its transitive
+development runtime is disabled because this addon declares its own runtime mod
+set.
 
 ## Build
 
@@ -157,17 +141,17 @@ These entries reflect source code present in the repository, not a blanket state
 
 ## Known Limitations
 
-- The project builds against the published AE2 Lightning Tech Maven coordinate by default; local jar fallback remains available for source-level AE2LT development.
+- The project builds against AE2 Lightning Tech published to Maven Local.
 - The AE2 official `1.21.1` branch and the addon / AE2LT projects currently observe different NeoForge patch versions.
 - `PackagedPatternProviderLogic` dispatch fallback and registry hardening are in place, but test coverage is still focused on targeted regression paths rather than broad integration scenarios.
 - Optional-mod reflection handling is still mixed, but the cached lookup helper now covers several hot-path adapters. New optional-mod hot paths should prefer cached lookup helpers first, and only move to `MethodHandle` / `VarHandle` when profiling shows a real win.
-- Full CI success depends on the published AE2 Lightning Tech Maven artifact remaining available from the configured repositories.
+- A clean machine or CI runner must publish/install AE2 Lightning Tech into its local Maven repository before building this project.
 
 ## Troubleshooting
 
 - `java -version` shows 8 but `javac -version` shows 21: check `PATH` ordering and `JAVA_HOME`.
 - `JAVA_HOME` points to a non-21 JDK: switch the shell to JDK 21 before running Gradle.
-- `AE2LT jar not found`: this only applies when `ae2lt_maven_notation` is empty; check `ae2lt_jar`, `AE2LT_JAR`, or the legacy `ae2lt_local_jar`.
+- `Could not find com.moakiee.ae2lt:AE2-Lightning-Tech`: run `publishToMavenLocal` in the AE2 Lightning Tech project and confirm that its version matches `ae2lt_maven_notation`.
 - Gradle is using the wrong JVM: run `.\gradlew.bat --version` and check the JVM line.
 - NeoForge version conflicts: compare the three projects' `gradle.properties`, generated mod metadata, and dependency resolution results.
 
