@@ -216,6 +216,11 @@ dependencies {
     runtimeOnly "curse.maven:ae2-jei-integration-1074338:7727898"      // 1.2.1
 }
 
+// Provider persistence tests exercise real Minecraft NBT and registry types,
+// so reuse the generated Minecraft/NeoForge classpath already available to main.
+sourceSets.test.compileClasspath += sourceSets.main.compileClasspath
+sourceSets.test.runtimeClasspath += sourceSets.main.runtimeClasspath
+
 test {
     useJUnitPlatform()
 }

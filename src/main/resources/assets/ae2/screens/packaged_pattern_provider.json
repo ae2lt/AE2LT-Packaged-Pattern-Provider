@@ -1,14 +1,67 @@
 {
   "$schema": "schema.json",
-  "includes": ["overloaded_pattern_provider.json"],
+  "includes": ["common/common.json", "common/player_inventory.json"],
+  "background": {
+    "texture": "guis/ex_pattern_provider.png",
+    "srcRect": [0, 0, 176, 245]
+  },
   "slots": {
+    "ENCODED_PATTERN": {
+      "left": 8,
+      "top": 42,
+      "grid": "BREAK_AFTER_9COLS"
+    },
+    "STORAGE": {
+      "left": 8,
+      "top": 127,
+      "grid": "HORIZONTAL"
+    },
     "AE2LTPP_ADAPTER_CARD": {
       "left": 178,
       "top": 78,
       "grid": "VERTICAL"
     }
   },
+  "text": {
+    "dialog_title": {
+      "text": {
+        "translate": "ae2ltpp.gui.title.packaged_pattern_provider"
+      },
+      "position": {
+        "left": 8,
+        "top": 6
+      }
+    },
+    "interface_config": {
+      "text": {
+        "translate": "gui.ae2.Patterns"
+      },
+      "position": {
+        "left": 8,
+        "top": 31
+      }
+    },
+    "interface_stored_items": {
+      "text": {
+        "translate": "gui.ae2.ReturnInventory"
+      },
+      "position": {
+        "left": 8,
+        "top": 116
+      }
+    }
+  },
   "widgets": {
+    "openPriority": {
+      "left": 152,
+      "top": -5,
+      "width": 20,
+      "height": 20
+    },
+    "lockReason": {
+      "left": 5,
+      "top": 15
+    },
     "adapterCard": {
       "right": 2,
       "top": 72

@@ -53,7 +53,7 @@ class PackagedProviderFixedDirectionTest {
         var packaged = read("src/main/java/com/moakiee/ae2lt/packaged/block/PackagedPatternProviderBlock.java");
         var wireless = read("src/main/java/com/moakiee/ae2lt/packaged/block/WirelessPackagedPatternProviderBlock.java");
 
-        assertTrue(base.contains("extends OverloadedPatternProviderBlock"));
+        assertTrue(base.contains("extends AEBaseEntityBlock<T>"));
         assertTrue(base.contains("void setSide("));
         assertTrue(base.contains("PushDirection.ALL"));
         assertTrue(packaged.contains("extends FixedPushDirectionProviderBlock<PackagedPatternProviderBlockEntity>"));

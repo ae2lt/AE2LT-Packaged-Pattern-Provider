@@ -18,6 +18,8 @@ import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 
 import appeng.api.stacks.AEItemKey;
+import appeng.api.networking.IGridNodeListener;
+import appeng.blockentity.grid.AENetworkedBlockEntity;
 import appeng.helpers.patternprovider.PatternProviderLogic;
 import appeng.menu.ISubMenu;
 import appeng.menu.MenuOpener;
@@ -26,17 +28,20 @@ import appeng.util.SettingsFrom;
 import appeng.util.inv.AppEngInternalInventory;
 import appeng.util.inv.InternalInventoryHost;
 
+import com.moakiee.ae2lt.api.frequency.FrequencyApi;
+import com.moakiee.ae2lt.api.frequency.FrequencyBindingAccess;
+import com.moakiee.ae2lt.api.frequency.FrequencyBindingHost;
 import com.moakiee.ae2lt.api.pattern.PatternProviderUiProfile;
-import com.moakiee.ae2lt.blockentity.OverloadedPatternProviderBlockEntity;
 import com.moakiee.ae2lt.packaged.item.MultiblockAdapterItem;
 import com.moakiee.ae2lt.packaged.logic.PackagedPatternProviderLogic;
 import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterPersistentScope;
 import com.moakiee.ae2lt.packaged.menu.PackagedPatternProviderMenu;
 import com.moakiee.ae2lt.packaged.registry.PPBlockEntities;
 import com.moakiee.ae2lt.packaged.registry.PPBlocks;
+import com.moakiee.ae2lt.packaged.patternprovider.StablePatternProviderBlockEntity;
 
-public class PackagedPatternProviderBlockEntity extends OverloadedPatternProviderBlockEntity
-        implements PatternProviderUiProfile, AdapterPersistentScope {
+public class PackagedPatternProviderBlockEntity extends StablePatternProviderBlockEntity
+        implements FrequencyBindingHost, PatternProviderUiProfile, AdapterPersistentScope {
 
     private static final String TAG_ADAPTER_INV = "ae2ltpp_adapter_inv";
     private static final String TAG_ADAPTER_FLAGS = "ae2ltpp_adapter_flags";
@@ -53,6 +58,7 @@ public class PackagedPatternProviderBlockEntity extends OverloadedPatternProvide
     private final java.util.HashMap<String, java.util.HashSet<Long>> adapterFlags = new java.util.HashMap<>();
 
     private final ProviderMode fixedProviderMode;
+    private final FrequencyBindingAccess frequencyBinding = FrequencyApi.createBinding(this);
 
     /**
      * Single-slot inventory holding the {@link MultiblockAdapterItem} packaged core
@@ -126,7 +132,44 @@ public class PackagedPatternProviderBlockEntity extends OverloadedPatternProvide
 
     @Override
     protected PatternProviderLogic createLogic() {
-        return new PackagedPatternProviderLogic(this.getMainNode(), this, getTotalPatternCapacity());
+        return new PackagedPatternProviderLogic(this.getMainNode(), this);
+    }
+
+    @Override
+    protected void serverTickAdditional(ServerLevel level) {
+        frequencyBinding.serverTick();
+    }
+
+    @Override
+    public FrequencyBindingAccess getFrequencyBindingAccess() {
+        return frequencyBinding;
+    }
+
+    @Override
+    public AENetworkedBlockEntity getFrequencyBindingBlockEntity() {
+        return this;
+    }
+
+    @Override
+    public void saveFrequencyBindingChanges() {
+        saveChanges();
+    }
+
+    @Override
+    public void markFrequencyBindingForUpdate() {
+        markForUpdate();
+    }
+
+    @Override
+    public void onMainNodeStateChanged(IGridNodeListener.State reason) {
+        super.onMainNodeStateChanged(reason);
+        frequencyBinding.onMainNodeStateChanged(reason);
+    }
+
+    @Override
+    public void onReady() {
+        super.onReady();
+        frequencyBinding.onReady();
     }
 
     @Override
@@ -148,11 +191,6 @@ public class PackagedPatternProviderBlockEntity extends OverloadedPatternProvide
     public ReturnMode getReturnMode() {
         var mode = super.getReturnMode();
         return mode == ReturnMode.EJECT ? ReturnMode.OFF : mode;
-    }
-
-    @Override
-    public boolean isAutoReturn() {
-        return getReturnMode() == ReturnMode.AUTO;
     }
 
     @Override
@@ -216,6 +254,7 @@ public class PackagedPatternProviderBlockEntity extends OverloadedPatternProvide
     @Override
     public void loadTag(CompoundTag data, HolderLookup.Provider registries) {
         super.loadTag(data, registries);
+        frequencyBinding.load(data);
         sanitizePackagedModes();
         if (data.contains(TAG_ADAPTER_INV)) {
             adapterInv.readFromNBT(data, TAG_ADAPTER_INV, registries);
@@ -240,6 +279,7 @@ public class PackagedPatternProviderBlockEntity extends OverloadedPatternProvide
     @Override
     public void saveAdditional(CompoundTag data, HolderLookup.Provider registries) {
         super.saveAdditional(data, registries);
+        frequencyBinding.save(data);
         adapterInv.writeToNBT(data, TAG_ADAPTER_INV, registries);
         if (!adapterFlags.isEmpty()) {
             var flagsTag = new CompoundTag();
@@ -302,9 +342,33 @@ public class PackagedPatternProviderBlockEntity extends OverloadedPatternProvide
     }
 
     @Override
+    public void exportSettings(
+            SettingsFrom mode,
+            DataComponentMap.Builder builder,
+            @Nullable Player player) {
+        super.exportSettings(mode, builder, player);
+        frequencyBinding.exportMemorySettings(
+                mode, builder, this::writeStableMemoryCardSettings);
+    }
+
+    @Override
     public void importSettings(SettingsFrom mode, DataComponentMap input, @Nullable Player player) {
         super.importSettings(mode, input, player);
+        frequencyBinding.importMemorySettings(
+                mode, input, this::readStableMemoryCardSettings);
         sanitizePackagedModes();
+    }
+
+    @Override
+    public void setRemoved() {
+        frequencyBinding.setRemoved();
+        super.setRemoved();
+    }
+
+    @Override
+    public void clearRemoved() {
+        super.clearRemoved();
+        frequencyBinding.clearRemoved();
     }
 
     @Override

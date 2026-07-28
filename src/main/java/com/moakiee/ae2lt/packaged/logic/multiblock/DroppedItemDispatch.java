@@ -15,7 +15,7 @@ import net.minecraft.world.phys.Vec3;
 import appeng.api.stacks.AEItemKey;
 import appeng.api.stacks.GenericStack;
 
-import com.moakiee.ae2lt.logic.AllowedOutputFilter;
+import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
 
 public final class DroppedItemDispatch {
 

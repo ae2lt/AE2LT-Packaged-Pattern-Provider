@@ -20,20 +20,10 @@ import net.minecraft.world.item.ItemStack;
 import appeng.api.config.Actionable;
 import appeng.api.config.LockCraftingMode;
 import appeng.api.crafting.IPatternDetails;
-import appeng.api.crafting.PatternDetailsHelper;
-import appeng.api.inventories.InternalInventory;
 import appeng.api.networking.IManagedGridNode;
 import appeng.api.stacks.GenericStack;
 import appeng.api.stacks.KeyCounter;
-import appeng.util.inv.filter.IAEItemFilter;
 
-import com.moakiee.ae2lt.blockentity.OverloadedPatternProviderBlockEntity;
-import com.moakiee.ae2lt.blockentity.OverloadedPatternProviderBlockEntity.ProviderMode;
-import com.moakiee.ae2lt.blockentity.OverloadedPatternProviderBlockEntity.ReturnMode;
-import com.moakiee.ae2lt.item.OverloadPatternItem;
-import com.moakiee.ae2lt.logic.OverloadedPatternProviderLogic;
-import com.moakiee.ae2lt.logic.energy.PowerCostUtil;
-import com.moakiee.ae2lt.mixin.PatternProviderLogicAccessor;
 import com.moakiee.ae2lt.packaged.blockentity.PackagedPatternProviderBlockEntity;
 import com.moakiee.ae2lt.packaged.item.MultiblockAdapterItem;
 import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterPersistentScope;
@@ -50,11 +40,16 @@ import com.moakiee.ae2lt.packaged.logic.multiblock.binding.LaneRateLimiter;
 import com.moakiee.ae2lt.packaged.logic.multiblock.binding.PatternBinding;
 import com.moakiee.ae2lt.packaged.logic.multiblock.binding.PatternBindingTable;
 import com.moakiee.ae2lt.packaged.logic.multiblock.binding.VirtualBatchAccumulator;
+import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
+import com.moakiee.ae2lt.packaged.patternprovider.PatternProviderPowerCost;
+import com.moakiee.ae2lt.packaged.patternprovider.StablePatternProviderBlockEntity.ProviderMode;
+import com.moakiee.ae2lt.packaged.patternprovider.StablePatternProviderBlockEntity.ReturnMode;
+import com.moakiee.ae2lt.packaged.patternprovider.StablePatternProviderLogic;
 
 /**
  * Packaged pattern provider scheduling.
  *
- * <p>Compared to the parent {@link OverloadedPatternProviderLogic} this class
+ * <p>Compared to the stable provider foundation this class
  * implements:
  * <ul>
  *   <li><b>Bind once on first use.</b> Recipe / structure search runs in
@@ -73,7 +68,7 @@ import com.moakiee.ae2lt.packaged.logic.multiblock.binding.VirtualBatchAccumulat
  *       in the world.</li>
  * </ul>
  */
-public class PackagedPatternProviderLogic extends OverloadedPatternProviderLogic {
+public class PackagedPatternProviderLogic extends StablePatternProviderLogic {
 
     /** Maximum virtual-craft acquisitions per lane per game tick. */
     private static final int VIRTUAL_PUSH_CAP_PER_LANE_PER_TICK = 64;
@@ -108,15 +103,8 @@ public class PackagedPatternProviderLogic extends OverloadedPatternProviderLogic
     private PendingVirtualFlushEffect pendingFlushEffect;
 
     public PackagedPatternProviderLogic(IManagedGridNode mainNode,
-                                        OverloadedPatternProviderBlockEntity host,
-                                        int patternInventorySize) {
-        super(mainNode, host, patternInventorySize);
-        ((PatternProviderLogicAccessor) this).getPatternInventory().setFilter(new IAEItemFilter() {
-            @Override
-            public boolean allowInsert(InternalInventory inv, int slot, ItemStack stack) {
-                return isPackagedPatternStack(stack);
-            }
-        });
+                                        PackagedPatternProviderBlockEntity host) {
+        super(mainNode, host);
         this.neighborIndex = new NeighborMainBlockIndex(host.getBlockPos());
     }
 
@@ -173,7 +161,7 @@ public class PackagedPatternProviderLogic extends OverloadedPatternProviderLogic
      * falling back to {@link AdapterPersistentScope#NOOP}).
      */
     private AdapterPersistentScope adapterScope() {
-        if (getOverloadedHost() instanceof AdapterPersistentScope scope) {
+        if (getProviderHost() instanceof AdapterPersistentScope scope) {
             return scope;
         }
         return AdapterPersistentScope.NOOP;
@@ -193,14 +181,14 @@ public class PackagedPatternProviderLogic extends OverloadedPatternProviderLogic
             return false;
         }
 
-        var level = getOverloadedHost().getLevel();
+        var level = getProviderHost().getLevel();
         if (!(level instanceof ServerLevel sl)) {
             return false;
         }
 
-        double cost = PowerCostUtil.totalCost(inputHolder);
+        double cost = PatternProviderPowerCost.totalCost(inputHolder);
         var grid = getGridNode().getGrid();
-        if (!PowerCostUtil.canAfford(grid, cost)) {
+        if (!PatternProviderPowerCost.canAfford(grid, cost)) {
             return false;
         }
 
@@ -211,18 +199,14 @@ public class PackagedPatternProviderLogic extends OverloadedPatternProviderLogic
         }
 
         if (tryVirtualPush(sl, patternDetails, inputHolder, binding, gameTick)) {
-            PowerCostUtil.consumeRaw(grid, cost);
-            syncPendingUnlockRule(patternDetails);
-            alertGridTick();
-            ((PatternProviderLogicAccessor) this).invokeOnPushPatternSuccess(patternDetails);
+            PatternProviderPowerCost.consumeRaw(grid, cost);
+            recordSuccessfulPush(patternDetails);
             return true;
         }
 
         if (tryRealDispatch(sl, patternDetails, inputHolder, binding, gameTick)) {
-            PowerCostUtil.consumeRaw(grid, cost);
-            syncPendingUnlockRule(patternDetails);
-            alertGridTick();
-            ((PatternProviderLogicAccessor) this).invokeOnPushPatternSuccess(patternDetails);
+            PatternProviderPowerCost.consumeRaw(grid, cost);
+            recordSuccessfulPush(patternDetails);
             return true;
         }
 
@@ -359,9 +343,7 @@ public class PackagedPatternProviderLogic extends OverloadedPatternProviderLogic
             return;
         }
 
-        tickWirelessInductionEnergy();
-
-        var level = getOverloadedHost().getLevel();
+        var level = getProviderHost().getLevel();
         if (!(level instanceof ServerLevel sl)) {
             return;
         }
@@ -378,7 +360,7 @@ public class PackagedPatternProviderLogic extends OverloadedPatternProviderLogic
             playFlushSound(sl);
         });
 
-        if (getOverloadedHost().getReturnMode() != ReturnMode.AUTO || !getGridNode().isActive()) {
+        if (getProviderHost().getReturnMode() != ReturnMode.AUTO || !getGridNode().isActive()) {
             return;
         }
 
@@ -395,20 +377,20 @@ public class PackagedPatternProviderLogic extends OverloadedPatternProviderLogic
             return;
         }
 
-        if (getOverloadedHost().getProviderMode() == ProviderMode.NORMAL) {
+        if (getProviderHost().getProviderMode() == ProviderMode.NORMAL) {
             autoReturnNormal(level, filter);
         } else {
             autoReturnWireless(level, filter, gameTick);
         }
     }
 
-    private void autoReturnNormal(ServerLevel level, com.moakiee.ae2lt.logic.AllowedOutputFilter filter) {
+    private void autoReturnNormal(ServerLevel level, AllowedOutputFilter filter) {
         for (var face : neighborIndex.adapterFaces(level)) {
             var adapter = neighborIndex.getAdapter(face);
             if (adapter == null || adapter instanceof VirtualCraftingAdapter) {
                 continue;
             }
-            var pos = getOverloadedHost().getBlockPos().relative(face);
+            var pos = getProviderHost().getBlockPos().relative(face);
             var outputs = adapter.extractOutputs(level, pos, filter, getActionSource(), adapterScope());
             if (!outputs.isEmpty()) {
                 insertOutputsToReturnInv(outputs);
@@ -417,7 +399,7 @@ public class PackagedPatternProviderLogic extends OverloadedPatternProviderLogic
     }
 
     private void autoReturnWireless(ServerLevel providerLevel,
-                                     com.moakiee.ae2lt.logic.AllowedOutputFilter filter,
+                                     AllowedOutputFilter filter,
                                      long gameTick) {
         var valid = getValidConnections(providerLevel, gameTick);
         if (valid.isEmpty()) {
@@ -457,7 +439,7 @@ public class PackagedPatternProviderLogic extends OverloadedPatternProviderLogic
 
     private PatternBinding computeBinding(ServerLevel level, IPatternDetails pattern, long gameTick) {
         var candidates = new ArrayList<LaneCandidate>();
-        var mode = getOverloadedHost().getProviderMode();
+        var mode = getProviderHost().getProviderMode();
         var installedCard = installedAdapterStack();
 
         if (mode == ProviderMode.NORMAL) {
@@ -466,7 +448,7 @@ public class PackagedPatternProviderLogic extends OverloadedPatternProviderLogic
                 if (adapter == null) {
                     continue;
                 }
-                var pos = getOverloadedHost().getBlockPos().relative(face);
+                var pos = getProviderHost().getBlockPos().relative(face);
                 if (!isAdapterUnlocked(adapter, level, pos, installedCard)) {
                     continue;
                 }
@@ -515,7 +497,7 @@ public class PackagedPatternProviderLogic extends OverloadedPatternProviderLogic
     private LaneEnv resolveLaneEnv(ServerLevel providerLevel, LaneCandidate candidate) {
         var lane = candidate.lane();
         if (lane instanceof LaneKey.FaceLane(Direction face)) {
-            var pos = getOverloadedHost().getBlockPos().relative(face);
+            var pos = getProviderHost().getBlockPos().relative(face);
             if (!providerLevel.isLoaded(pos)) {
                 return null;
             }
@@ -548,7 +530,7 @@ public class PackagedPatternProviderLogic extends OverloadedPatternProviderLogic
         for (var dir : EnumSet.allOf(Direction.class)) {
             active.add(new LaneKey.FaceLane(dir));
         }
-        for (var conn : getOverloadedHost().getConnections()) {
+        for (var conn : getProviderHost().getConnections()) {
             active.add(new LaneKey.ConnLane(conn));
         }
         cooldownTable.retainAll(active);
@@ -583,11 +565,11 @@ public class PackagedPatternProviderLogic extends OverloadedPatternProviderLogic
                 continue;
             }
             long actuallyInserted = 0;
-            long affordable = PowerCostUtil.maxAffordable(grid, stack.what(), total);
+            long affordable = PatternProviderPowerCost.maxAffordable(grid, stack.what(), total);
             if (affordable > 0) {
                 long inserted = returnInv.insert(0, stack.what(), affordable, Actionable.MODULATE);
                 if (inserted > 0) {
-                    PowerCostUtil.consume(grid, stack.what(), inserted);
+                    PatternProviderPowerCost.consume(grid, stack.what(), inserted);
                     actuallyInserted = inserted;
                 }
             }
@@ -622,7 +604,7 @@ public class PackagedPatternProviderLogic extends OverloadedPatternProviderLogic
         if (sound == null) {
             return;
         }
-        var pos = getOverloadedHost().getBlockPos();
+        var pos = getProviderHost().getBlockPos();
         level.playSound(null, pos,
                 sound,
                 SoundSource.BLOCKS,
@@ -661,7 +643,7 @@ public class PackagedPatternProviderLogic extends OverloadedPatternProviderLogic
      * adapter slot, or {@link ItemStack#EMPTY} when the slot is empty.
      */
     private ItemStack installedAdapterStack() {
-        if (getOverloadedHost() instanceof PackagedPatternProviderBlockEntity packaged) {
+        if (getProviderHost() instanceof PackagedPatternProviderBlockEntity packaged) {
             return packaged.getInstalledAdapterStack();
         }
         return ItemStack.EMPTY;
@@ -695,36 +677,4 @@ public class PackagedPatternProviderLogic extends OverloadedPatternProviderLogic
                                              Object handle) {
     }
 
-    private static boolean isPackagedPatternStack(ItemStack stack) {
-        if (stack.isEmpty()) {
-            return false;
-        }
-        if (stack.getItem() instanceof OverloadPatternItem overloadPatternItem) {
-            return overloadPatternItem.hasPayload(stack);
-        }
-        return PatternDetailsHelper.isEncodedPattern(stack);
-    }
-
-    // ===== Test / debug accessors (package-private) =====
-
-    @SuppressWarnings("unused")
-    PatternBindingTable bindingTableForTesting() {
-        return bindingTable;
-    }
-
-    @SuppressWarnings("unused")
-    LaneCooldownTable cooldownTableForTesting() {
-        return cooldownTable;
-    }
-
-    @SuppressWarnings("unused")
-    VirtualBatchAccumulator virtualBatchForTesting() {
-        return virtualBatch;
-    }
-
-    @SuppressWarnings("unused")
-    private List<LaneCandidate> dumpCandidatesForTesting(IPatternDetails pattern) {
-        var binding = bindingTable.get(pattern);
-        return binding == null ? List.of() : binding.candidates();
-    }
 }

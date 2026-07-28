@@ -29,7 +29,7 @@ import appeng.api.stacks.AEKey;
 import appeng.api.stacks.GenericStack;
 import appeng.api.stacks.KeyCounter;
 
-import com.moakiee.ae2lt.logic.AllowedOutputFilter;
+import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
 import com.moakiee.ae2lt.packaged.item.AdapterIds;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchPlan;
 import com.moakiee.ae2lt.packaged.logic.multiblock.InsertionStrategy;

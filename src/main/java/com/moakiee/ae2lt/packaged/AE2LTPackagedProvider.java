@@ -13,12 +13,9 @@ import appeng.api.AECapabilities;
 import appeng.api.networking.IInWorldGridNodeHost;
 import appeng.blockentity.AEBaseBlockEntity;
 
-import com.moakiee.ae2lt.blockentity.OverloadedPatternProviderBlockEntity;
-import com.moakiee.ae2lt.logic.InsertOnlyReturnInvWrapper;
-import com.moakiee.ae2lt.logic.OverloadedPatternProviderLogic;
-import com.moakiee.ae2lt.logic.UnlimitedReturnInventory;
 import com.moakiee.ae2lt.packaged.blockentity.PackagedPatternProviderBlockEntity;
 import com.moakiee.ae2lt.packaged.blockentity.WirelessPackagedPatternProviderBlockEntity;
+import com.moakiee.ae2lt.packaged.logic.PackagedPatternProviderLogic;
 import com.moakiee.ae2lt.packaged.logic.multiblock.MultiblockAdapterRegistry;
 import com.moakiee.ae2lt.packaged.logic.multiblock.aa.ActuallyAdditionsAtomicReconstructorAdapter;
 import com.moakiee.ae2lt.packaged.logic.multiblock.aa.ActuallyAdditionsEmpowererAdapter;
@@ -48,6 +45,8 @@ import com.moakiee.ae2lt.packaged.registry.PPBlocks;
 import com.moakiee.ae2lt.packaged.registry.PPCreativeTabs;
 import com.moakiee.ae2lt.packaged.registry.PPItems;
 import com.moakiee.ae2lt.packaged.registry.PPMenuTypes;
+import com.moakiee.ae2lt.packaged.patternprovider.InsertOnlyPatternProviderReturnInventory;
+import com.moakiee.ae2lt.packaged.patternprovider.StablePatternProviderBlockEntity;
 
 @Mod(AE2LTPackagedProvider.MODID)
 public class AE2LTPackagedProvider {
@@ -97,7 +96,7 @@ public class AE2LTPackagedProvider {
                     PackagedPatternProviderBlockEntity.class,
                     packagedBeType,
                     null,
-                    OverloadedPatternProviderBlockEntity::serverTick);
+                    StablePatternProviderBlockEntity::serverTick);
             AEBaseBlockEntity.registerBlockEntityItem(packagedBeType, packagedBlock.asItem());
 
             var wirelessPackagedBlock = PPBlocks.WIRELESS_PACKAGED_PATTERN_PROVIDER.get();
@@ -106,7 +105,7 @@ public class AE2LTPackagedProvider {
                     WirelessPackagedPatternProviderBlockEntity.class,
                     wirelessPackagedBeType,
                     null,
-                    OverloadedPatternProviderBlockEntity::serverTick);
+                    StablePatternProviderBlockEntity::serverTick);
             AEBaseBlockEntity.registerBlockEntityItem(
                     wirelessPackagedBeType,
                     wirelessPackagedBlock.asItem());
@@ -122,10 +121,10 @@ public class AE2LTPackagedProvider {
         event.registerBlock(
                 AECapabilities.GENERIC_INTERNAL_INV,
                 (level, pos, state, blockEntity, context) -> {
-                    if (blockEntity instanceof OverloadedPatternProviderBlockEntity be) {
-                        var logic = (OverloadedPatternProviderLogic) be.getLogic();
-                        return new InsertOnlyReturnInvWrapper(
-                                (UnlimitedReturnInventory) logic.getInternalReturnInv(),
+                    if (blockEntity instanceof PackagedPatternProviderBlockEntity be
+                            && be.getLogic() instanceof PackagedPatternProviderLogic logic) {
+                        return new InsertOnlyPatternProviderReturnInventory(
+                                logic.getInternalReturnInv(),
                                 logic);
                     }
                     return null;
@@ -136,7 +135,7 @@ public class AE2LTPackagedProvider {
 
     private static void registerGridNodeHost(
             RegisterCapabilitiesEvent event,
-            BlockEntityType<? extends OverloadedPatternProviderBlockEntity> type) {
+            BlockEntityType<? extends StablePatternProviderBlockEntity> type) {
         event.registerBlockEntity(
                 AECapabilities.IN_WORLD_GRID_NODE_HOST,
                 type,

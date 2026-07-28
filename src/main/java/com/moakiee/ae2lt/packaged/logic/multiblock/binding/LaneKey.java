@@ -7,7 +7,7 @@ import net.minecraft.world.level.Level;
 
 import org.jetbrains.annotations.Nullable;
 
-import com.moakiee.ae2lt.blockentity.OverloadedPatternProviderBlockEntity.WirelessConnection;
+import com.moakiee.ae2lt.packaged.patternprovider.StablePatternProviderBlockEntity.WirelessConnection;
 
 /**
  * Identity of a candidate dispatch target for a packaged pattern.

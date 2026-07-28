@@ -21,8 +21,8 @@ import appeng.api.networking.security.IActionSource;
 import appeng.api.stacks.GenericStack;
 import appeng.api.stacks.KeyCounter;
 
-import com.moakiee.ae2lt.logic.AllowedOutputFilter;
 import com.moakiee.ae2lt.packaged.logic.multiblock.binding.BindingResult;
+import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
 
 class MultiblockAdapterRegistryTest {
 

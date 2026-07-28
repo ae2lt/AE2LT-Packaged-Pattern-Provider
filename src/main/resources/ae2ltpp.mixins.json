@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8.5",
+  "package": "com.moakiee.ae2lt.packaged.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "PatternProviderLogicAccessor",
+    "PatternProviderLogicMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
