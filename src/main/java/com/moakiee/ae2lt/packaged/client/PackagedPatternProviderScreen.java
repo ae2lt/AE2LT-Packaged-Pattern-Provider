@@ -6,14 +6,10 @@ import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
 
-import appeng.api.config.ActionItems;
 import appeng.api.config.Settings;
-import appeng.client.gui.Icon;
 import appeng.client.gui.implementations.PatternProviderScreen;
 import appeng.client.gui.style.ScreenStyle;
-import appeng.client.gui.widgets.ActionButton;
 import appeng.client.gui.widgets.SettingToggleButton;
-import appeng.client.gui.widgets.ToggleButton;
 import appeng.client.gui.widgets.UpgradesPanel;
 
 import com.moakiee.ae2lt.api.client.PatternProviderToolbarButtonHider;
@@ -22,23 +18,22 @@ import com.moakiee.ae2lt.packaged.menu.PackagedPatternProviderMenu;
 
 public class PackagedPatternProviderScreen
         extends PatternProviderScreen<PackagedPatternProviderMenu> {
-    private final ToggleButton autoReturnButton;
+    private final PackagedProviderTextureButton autoReturnButton;
 
     public PackagedPatternProviderScreen(PackagedPatternProviderMenu menu, Inventory playerInventory,
                                          Component title, ScreenStyle style) {
         super(menu, playerInventory, title, style);
 
-        var frequencyButton = new ActionButton(
-                ActionItems.TERMINAL_SETTINGS,
+        var frequencyButton = PackagedProviderTextureButton.frequencyBinding(
                 () -> FrequencyApi.openBindingScreen(menu));
-        frequencyButton.setMessage(
-                Component.translatable("ae2ltpp.gui.frequency_binding"));
+        frequencyButton.setTooltipOff(List.of(
+                Component.translatable("ae2lt.gui.frequency.bind")));
+        frequencyButton.setTooltipOn(List.of(
+                Component.translatable("ae2lt.gui.frequency.bind")));
         addToLeftToolbar(frequencyButton);
 
-        autoReturnButton = new ToggleButton(
-                Icon.AUTO_EXPORT_ON,
-                Icon.AUTO_EXPORT_OFF,
-                ignored -> menu.clientToggleAutoReturn());
+        autoReturnButton = PackagedProviderTextureButton.autoReturn(
+                menu::clientToggleAutoReturn);
         autoReturnButton.setTooltipOn(List.of(
                 Component.translatable("ae2ltpp.gui.auto_return.on")));
         autoReturnButton.setTooltipOff(List.of(

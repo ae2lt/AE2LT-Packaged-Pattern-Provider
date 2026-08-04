@@ -356,6 +356,9 @@ public final class ArsNouveauImbuementChamberAdapter implements MultiblockAdapte
 
         for (var mutablePos : BlockPos.betweenClosed(min, max)) {
             var pos = mutablePos.immutable();
+            if (level.isOutsideBuildHeight(pos)) {
+                continue;
+            }
             if (!level.isLoaded(pos)) {
                 return null;
             }
@@ -379,6 +382,9 @@ public final class ArsNouveauImbuementChamberAdapter implements MultiblockAdapte
 
         for (var mutablePos : BlockPos.betweenClosed(min, max)) {
             var pos = mutablePos.immutable();
+            if (level.isOutsideBuildHeight(pos)) {
+                continue;
+            }
             if (!level.isLoaded(pos)) {
                 return null;
             }

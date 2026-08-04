@@ -98,8 +98,8 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
         if (!hasSingleItemOutput(pattern)) {
             return null;
         }
-        var found = findCandidateRecipe(level, pattern);
-        if (found == null) {
+        var found = findCandidateRecipes(level, pattern);
+        if (found.candidates().isEmpty()) {
             return null;
         }
         return new BindingResult(found, BindingMode.REAL);
@@ -115,7 +115,8 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
         if (isCrafting(be) || !containerEmpty(apparatus) || !hasValidArcaneCore(level, mainPos)) {
             return false;
         }
-        return hasSourceAvailable(level, mainPos, bind.sourceCost());
+        return bind.candidates().stream()
+                .anyMatch(candidate -> hasSourceAvailable(level, mainPos, candidate.sourceCost()));
     }
 
     @Override
@@ -135,8 +136,19 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
             return null;
         }
 
-        var match = assignInputsToRecipe(level, bind.recipe(), units, bind.sourceCost());
-        if (match == null || match.pedestalUnits().size() > pedestals.size()) {
+        RecipeMatch match = null;
+        for (var candidate : bind.candidates()) {
+            var candidateMatch = assignInputsToRecipe(level, candidate.recipe(), units, candidate.sourceCost());
+            if (candidateMatch == null) {
+                continue;
+            }
+            if (!hasSourceAvailable(level, mainPos, candidate.sourceCost())) {
+                continue;
+            }
+            match = candidateMatch;
+            break;
+        }
+        if (match == null) {
             return null;
         }
 
@@ -195,12 +207,12 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
     }
 
     /**
-     * Bind-time recipe search. Returns the unique {@code (recipe, sourceCost)}
-     * tuple whose result matches the pattern output, scanning Ars's full recipe
-     * registry but only with pattern metadata.
+     * Bind-time recipe search. Keeps every {@code (recipe, sourceCost)} tuple
+     * whose result matches the pattern output. Input matching has to wait until
+     * push time because AE supplies the selected alternative inputs there.
      */
-    @Nullable
-    private ApparatusBindHandle findCandidateRecipe(ServerLevel level, IPatternDetails pattern) {
+    private ApparatusBindHandle findCandidateRecipes(ServerLevel level, IPatternDetails pattern) {
+        var candidates = new ArrayList<RecipeCandidate>();
         for (var holder : recipes(level)) {
             var recipe = holder.value();
             var result = resultItem(recipe, level);
@@ -211,9 +223,9 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
             if (sourceCost < 0) {
                 continue;
             }
-            return new ApparatusBindHandle(recipe, sourceCost);
+            candidates.add(new RecipeCandidate(recipe, sourceCost));
         }
-        return null;
+        return new ApparatusBindHandle(List.copyOf(candidates));
     }
 
     /**
@@ -323,6 +335,13 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
 
         for (var mutablePos : BlockPos.betweenClosed(min, max)) {
             var pos = mutablePos.immutable();
+            // Ars itself simply finds block entities in this cube. Near the
+            // world's build limits the cube extends outside valid Y values;
+            // ServerLevel#isLoaded reports false there even though no chunk is
+            // actually missing, so those positions must not reject dispatch.
+            if (level.isOutsideBuildHeight(pos)) {
+                continue;
+            }
             if (!level.isLoaded(pos)) {
                 return null;
             }
@@ -524,7 +543,13 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
     }
 
     /** Opaque binding handle returned from {@link #bind}. */
-    private record ApparatusBindHandle(Object recipe, int sourceCost) {
+    private record RecipeCandidate(Object recipe, int sourceCost) {
+    }
+
+    private record ApparatusBindHandle(List<RecipeCandidate> candidates) {
+        ApparatusBindHandle {
+            candidates = List.copyOf(candidates);
+        }
     }
 
     private static final class ArsReflection {

@@ -59,7 +59,7 @@ import com.moakiee.ae2lt.packaged.patternprovider.StablePatternProviderLogic;
  *       deposit outputs into {@link VirtualBatchAccumulator}; the buffer
  *       flushes every {@value VirtualBatchAccumulator#FLUSH_INTERVAL_TICKS} ticks.
  *       A {@link LaneRateLimiter} caps each lane at 64 pushes per tick.</li>
- *   <li><b>Real dispatch three-step.</b> Per push: pre-extract outputs &rarr;
+ *   <li><b>Real dispatch.</b> Per push: optionally return outputs, then run
  *       {@link MultiblockAdapter#canDispatch} &rarr; {@code planWithBinding}.
  *       Failures route the lane through {@link LaneCooldownTable}'s retry
  *       schedule (1, 2, 3, 4, 5, 8, 10, 20, 40, then every 40 ticks).</li>
@@ -293,20 +293,25 @@ public class PackagedPatternProviderLogic extends StablePatternProviderLogic {
                 continue;
             }
 
-            // 1. Pre-extract outputs so the machine has output room
-            var extracted = candidate.adapter().extractOutputs(
-                    env.level(), env.pos(), filter, getActionSource(), adapterScope());
-            if (!extracted.isEmpty()) {
-                insertOutputsToReturnInv(extracted);
+            // OFF means the provider must not pull completed products from the
+            // machine. Previously this pre-dispatch cleanup ran unconditionally,
+            // which made auto-return effectively active even while its GUI button
+            // showed OFF.
+            if (getProviderHost().getReturnMode() == ReturnMode.AUTO) {
+                var extracted = candidate.adapter().extractOutputs(
+                        env.level(), env.pos(), filter, getActionSource(), adapterScope());
+                if (!extracted.isEmpty()) {
+                    insertOutputsToReturnInv(extracted);
+                }
             }
 
-            // 2. Cheap gate: is the machine accepting?
+            // 1. Cheap gate: is the machine accepting?
             if (!candidate.adapter().canDispatch(env.level(), env.pos(), candidate.handle())) {
                 cooldownTable.recordFailure(candidate.lane(), gameTick);
                 continue;
             }
 
-            // 3. Build and execute the plan
+            // 2. Build and execute the plan
             var plan = candidate.adapter().planWithBinding(
                     env.level(), env.pos(), pattern, inputs, candidate.handle(),
                     getActionSource(), adapterScope());
