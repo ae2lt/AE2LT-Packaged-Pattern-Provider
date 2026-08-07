@@ -17,12 +17,17 @@ Insert the corresponding **Packaged Core** into the provider to select the type 
 
 ## General usage
 
-1. Place a (Wireless) Packaged Pattern Provider **touching the target machine's main block / core**.
+1. For a regular Packaged Pattern Provider, place it **touching the target machine's main block / core**.
+   For a Wireless Packaged Pattern Provider, set its wireless connection target to that block; it does not
+   need to touch the machine.
 2. Put the matching Packaged Core into the provider's **Packaged Core slot**. Each provider can serve only one type of machine at a time.
 3. As with a normal Pattern Provider, encode the recipe as a **processing pattern** and insert it.
 4. When AE2 requests the output, the provider reads the machine recipe (including custom recipes), sends the ingredients to the machine, and automatically returns the completed result to your ME network.
 
-> The Packaged Pattern Provider behaves much like a simulated player. Multiblock machines must still be built according to **their own structure**, with the provider touching the **main block / core**. You must also supply the machine with enough power, mana, Source, or other required resources.
+> The Packaged Pattern Provider behaves much like a simulated player. Multiblock machines must still be built
+> according to **their own structure**. A regular provider must touch the **main block / core**, while a wireless
+> provider must target that block through its wireless connection. You must also supply the machine with enough
+> power, mana, Source, or other required resources.
 >
 > If a craft cannot be dispatched correctly, check that the machine structure is complete, the machine contains no leftover items, and the correct Packaged Core is installed.
 >
