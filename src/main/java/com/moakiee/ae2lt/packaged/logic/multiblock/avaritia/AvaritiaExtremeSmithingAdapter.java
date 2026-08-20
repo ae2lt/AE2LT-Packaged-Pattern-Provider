@@ -30,8 +30,7 @@ import appeng.api.stacks.GenericStack;
 import appeng.api.stacks.KeyCounter;
 
 import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
-import com.moakiee.thunderbolt.ae2.overload.model.MatchMode;
-import com.moakiee.thunderbolt.ae2.overload.pattern.OverloadedProviderOnlyPatternDetails;
+import com.moakiee.ae2lt.packaged.patternprovider.OverloadPatternSemantics;
 import com.moakiee.ae2lt.packaged.item.AdapterIds;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchPlan;
 import com.moakiee.ae2lt.packaged.logic.multiblock.VirtualCraftingAdapter;
@@ -183,7 +182,7 @@ public final class AvaritiaExtremeSmithingAdapter implements VirtualCraftingAdap
             return null;
         }
 
-        boolean overload = outputMode(pattern, 0) == MatchMode.ID_ONLY;
+        boolean overload = OverloadPatternSemantics.isIdOnlyOutput(pattern, 0);
 
         for (var holder : recipes(level)) {
             var recipe = holder.value();
@@ -329,16 +328,6 @@ public final class AvaritiaExtremeSmithingAdapter implements VirtualCraftingAdap
                 expected.amount(), expectedKey,
                 expectedTotalCount, actual,
                 AEItemKey::dropSecondary);
-    }
-
-    private static MatchMode outputMode(IPatternDetails pattern, int outputIndex) {
-        if (pattern instanceof OverloadedProviderOnlyPatternDetails overload) {
-            var outputs = overload.overloadPatternDetailsView().outputs();
-            if (outputIndex >= 0 && outputIndex < outputs.size()) {
-                return outputs.get(outputIndex).matchMode();
-            }
-        }
-        return MatchMode.STRICT;
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

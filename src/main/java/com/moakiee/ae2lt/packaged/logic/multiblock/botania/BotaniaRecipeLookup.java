@@ -16,8 +16,7 @@ import net.minecraft.world.item.crafting.RecipeType;
 import appeng.api.crafting.IPatternDetails;
 import appeng.api.stacks.AEItemKey;
 
-import com.moakiee.thunderbolt.ae2.overload.model.MatchMode;
-import com.moakiee.thunderbolt.ae2.overload.pattern.OverloadedProviderOnlyPatternDetails;
+import com.moakiee.ae2lt.packaged.patternprovider.OverloadPatternSemantics;
 import com.moakiee.ae2lt.packaged.logic.multiblock.ReflectionSupport;
 
 /**
@@ -106,7 +105,7 @@ public final class BotaniaRecipeLookup {
             return false;
         }
         var actualKey = AEItemKey.of(actualResult);
-        return outputMode(pattern, 0) == MatchMode.ID_ONLY
+        return OverloadPatternSemantics.isIdOnlyOutput(pattern, 0)
                 ? expectedKey.dropSecondary().equals(actualKey.dropSecondary())
                 : expectedKey.equals(actualKey);
     }
@@ -133,7 +132,7 @@ public final class BotaniaRecipeLookup {
             return false;
         }
         var actualKey = AEItemKey.of(actualResult);
-        return outputMode(pattern, 0) == MatchMode.ID_ONLY
+        return OverloadPatternSemantics.isIdOnlyOutput(pattern, 0)
                 ? expectedKey.dropSecondary().equals(actualKey.dropSecondary())
                 : expectedKey.equals(actualKey);
     }
@@ -160,7 +159,7 @@ public final class BotaniaRecipeLookup {
             expected.add(new int[] { stack.getCount() });
         }
         var matched = new boolean[expected.size()];
-        boolean idOnly = outputMode(pattern, 0) == MatchMode.ID_ONLY;
+        boolean idOnly = OverloadPatternSemantics.isIdOnlyOutput(pattern, 0);
         for (var patternOut : patternOutputs) {
             if (!(patternOut.what() instanceof AEItemKey patternKey)) {
                 return false;
@@ -190,16 +189,6 @@ public final class BotaniaRecipeLookup {
             }
         }
         return true;
-    }
-
-    public static MatchMode outputMode(IPatternDetails pattern, int outputIndex) {
-        if (pattern instanceof OverloadedProviderOnlyPatternDetails overload) {
-            var outputs = overload.overloadPatternDetailsView().outputs();
-            if (outputIndex >= 0 && outputIndex < outputs.size()) {
-                return outputs.get(outputIndex).matchMode();
-            }
-        }
-        return MatchMode.STRICT;
     }
 
     // ===== Mana Infusion (Mana Pool) =====
@@ -327,7 +316,7 @@ public final class BotaniaRecipeLookup {
         if (patternOutputs.size() != 1 + nonEmptyCatalystCount) {
             return false;
         }
-        boolean idOnly = outputMode(pattern, 0) == MatchMode.ID_ONLY;
+        boolean idOnly = OverloadPatternSemantics.isIdOnlyOutput(pattern, 0);
         var primaryKey = AEItemKey.of(primaryResult);
         boolean primaryMatched = false;
         var usedCatalysts = new boolean[catalysts.size()];

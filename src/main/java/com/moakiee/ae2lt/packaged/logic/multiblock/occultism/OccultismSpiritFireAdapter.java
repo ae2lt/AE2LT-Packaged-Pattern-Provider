@@ -23,8 +23,7 @@ import appeng.api.stacks.GenericStack;
 import appeng.api.stacks.KeyCounter;
 
 import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
-import com.moakiee.thunderbolt.ae2.overload.model.MatchMode;
-import com.moakiee.thunderbolt.ae2.overload.pattern.OverloadedProviderOnlyPatternDetails;
+import com.moakiee.ae2lt.packaged.patternprovider.OverloadPatternSemantics;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchPlan;
 import com.moakiee.ae2lt.packaged.logic.multiblock.VirtualCraftingAdapter;
 import com.moakiee.ae2lt.packaged.logic.multiblock.VirtualCraftingResult;
@@ -311,7 +310,7 @@ public final class OccultismSpiritFireAdapter implements VirtualCraftingAdapter 
             return false;
         }
         var actual = AEItemKey.of(result);
-        return outputMode(pattern, 0) == MatchMode.ID_ONLY
+        return OverloadPatternSemantics.isIdOnlyOutput(pattern, 0)
                 ? expectedKey.dropSecondary().equals(actual.dropSecondary())
                 : expectedKey.equals(actual);
     }
@@ -338,7 +337,7 @@ public final class OccultismSpiritFireAdapter implements VirtualCraftingAdapter 
             return false;
         }
         var actual = AEItemKey.of(result);
-        return outputMode(pattern, 0) == MatchMode.ID_ONLY
+        return OverloadPatternSemantics.isIdOnlyOutput(pattern, 0)
                 ? expectedKey.dropSecondary().equals(actual.dropSecondary())
                 : expectedKey.equals(actual);
     }
@@ -350,23 +349,11 @@ public final class OccultismSpiritFireAdapter implements VirtualCraftingAdapter 
      * Defaults to 1, matching Spirit Fire's intrinsic 1-input shape.
      */
     private static long perCraftInputAmount(IPatternDetails pattern) {
-        if (pattern instanceof OverloadedProviderOnlyPatternDetails overload) {
-            var overloadInputs = overload.overloadPatternDetailsView().inputs();
-            if (!overloadInputs.isEmpty()) {
-                return Math.max(1, overloadInputs.getFirst().amountPerCraft());
-            }
+        var inputs = pattern.getInputs();
+        if (inputs.length > 0) {
+            return Math.max(1, inputs[0].getMultiplier());
         }
         return 1L;
-    }
-
-    private static MatchMode outputMode(IPatternDetails pattern, int outputIndex) {
-        if (pattern instanceof OverloadedProviderOnlyPatternDetails overload) {
-            var outputs = overload.overloadPatternDetailsView().outputs();
-            if (outputIndex >= 0 && outputIndex < outputs.size()) {
-                return outputs.get(outputIndex).matchMode();
-            }
-        }
-        return MatchMode.STRICT;
     }
 
     private static boolean isOccultismLoaded() {

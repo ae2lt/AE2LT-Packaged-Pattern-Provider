@@ -33,11 +33,9 @@ import appeng.util.inv.filter.IAEItemFilter;
 
 import com.moakiee.ae2lt.api.patternprovider.WirelessPatternProviderPolicy;
 import com.moakiee.ae2lt.api.patternprovider.EncodedPatternPayloadValidator;
-import com.moakiee.thunderbolt.api.wireless.WirelessConnectionRange;
+import com.moakiee.ae2lt.logic.wireless.support.WirelessConnectionRange;
 import com.moakiee.ae2lt.packaged.mixin.PatternProviderLogicAccessor;
-import com.moakiee.thunderbolt.ae2.overload.model.MatchMode;
-import com.moakiee.thunderbolt.ae2.overload.pattern.OverloadPatternDetails;
-import com.moakiee.thunderbolt.ae2.overload.pattern.OverloadedProviderOnlyPatternDetails;
+import com.moakiee.thunderbolt.core.crafting.overload.OverloadedPatternDetails;
 
 /**
  * PP-owned pattern-provider foundation extracted from AE2LT's 1.1/main logic.
@@ -46,7 +44,8 @@ import com.moakiee.thunderbolt.ae2.overload.pattern.OverloadedProviderOnlyPatter
  * addons: overload-aware pattern loading, return-inventory power accounting,
  * lock-until-result matching, wireless endpoint validation and the AE2 grid
  * ticker bridge. Machine-specific dispatch remains in the addon subclass.
- * Thunderbolt supplies overload-pattern primitives but owns no packaged-provider
+ * AE2LT supplies overload-pattern primitives, while Thunderbolt owns generic
+ * infrastructure only; neither dependency owns this packaged-provider
  * implementation.
  */
 public class StablePatternProviderLogic extends PatternProviderLogic {
@@ -67,7 +66,7 @@ public class StablePatternProviderLogic extends PatternProviderLogic {
     private boolean outputFilterDirty = true;
 
     @Nullable
-    private MatchMode pendingUnlockMatchMode;
+    private Boolean pendingUnlockIdOnly;
     @Nullable
     private ItemStack pendingUnlockTemplate;
 
@@ -197,14 +196,11 @@ public class StablePatternProviderLogic extends PatternProviderLogic {
         }
         var filter = new AllowedOutputFilter();
         for (var pattern : getAvailablePatterns()) {
-            if (pattern instanceof OverloadedProviderOnlyPatternDetails overload
-                    && overload.overloadPatternDetailsView() != null) {
+            if (pattern instanceof OverloadedPatternDetails overload) {
                 var actualOutputs = pattern.getOutputs();
-                var overloadOutputs = overload.overloadPatternDetailsView().outputs();
-                int count = Math.min(actualOutputs.size(), overloadOutputs.size());
-                for (int i = 0; i < count; i++) {
+                for (int i = 0; i < actualOutputs.size(); i++) {
                     var key = actualOutputs.get(i).what();
-                    if (overloadOutputs.get(i).matchMode() == MatchMode.ID_ONLY) {
+                    if (overload.isFuzzyOutput(i)) {
                         filter.allowIdOnly(key);
                     } else {
                         filter.allowStrict(key);
@@ -333,7 +329,7 @@ public class StablePatternProviderLogic extends PatternProviderLogic {
 
     private boolean returnedStackMatchesUnlock(
             GenericStack unlockStack, GenericStack returnedStack) {
-        if (pendingUnlockMatchMode == MatchMode.ID_ONLY) {
+        if (Boolean.TRUE.equals(pendingUnlockIdOnly)) {
             Item expectedItem = null;
             if (pendingUnlockTemplate != null && !pendingUnlockTemplate.isEmpty()) {
                 expectedItem = pendingUnlockTemplate.getItem();
@@ -350,40 +346,31 @@ public class StablePatternProviderLogic extends PatternProviderLogic {
     private void syncPendingUnlockRule(IPatternDetails pattern) {
         clearPendingUnlockRule();
         if (getCraftingLockedReason() != LockCraftingMode.LOCK_UNTIL_RESULT
-                || !(pattern instanceof OverloadedProviderOnlyPatternDetails overload)) {
+                || !(pattern instanceof OverloadedPatternDetails overload)) {
             return;
         }
-        var view = overload.overloadPatternDetailsView();
-        if (view == null) {
+        int outputIndex = resolveUnlockOutputIndex(pattern);
+        var actualOutputs = pattern.getOutputs();
+        if (outputIndex < 0 || outputIndex >= actualOutputs.size()) {
             return;
         }
-        int outputIndex = resolveUnlockOutputIndex(pattern, view);
-        if (outputIndex < 0 || outputIndex >= view.outputs().size()) {
-            return;
-        }
-        var output = view.outputs().get(outputIndex);
-        pendingUnlockMatchMode = output.matchMode();
-        pendingUnlockTemplate = output.template();
+        pendingUnlockIdOnly = overload.isFuzzyOutput(outputIndex);
+        var key = actualOutputs.get(outputIndex).what();
+        pendingUnlockTemplate = key instanceof AEItemKey itemKey
+                ? itemKey.toStack(1)
+                : null;
     }
 
-    private static int resolveUnlockOutputIndex(
-            IPatternDetails pattern, OverloadPatternDetails overloadDetails) {
+    private static int resolveUnlockOutputIndex(IPatternDetails pattern) {
         var actualOutputs = pattern.getOutputs();
-        var overloadOutputs = overloadDetails.outputs();
-        int count = Math.min(actualOutputs.size(), overloadOutputs.size());
-        if (count <= 0) {
+        if (actualOutputs.isEmpty()) {
             return -1;
         }
         var primary = pattern.getPrimaryOutput();
-        for (int i = 0; i < count; i++) {
+        for (int i = 0; i < actualOutputs.size(); i++) {
             var candidate = actualOutputs.get(i);
             if (candidate.what().equals(primary.what())
                     && candidate.amount() == primary.amount()) {
-                return i;
-            }
-        }
-        for (int i = 0; i < count; i++) {
-            if (overloadOutputs.get(i).primaryOutput()) {
                 return i;
             }
         }
@@ -391,15 +378,16 @@ public class StablePatternProviderLogic extends PatternProviderLogic {
     }
 
     private void clearPendingUnlockRule() {
-        pendingUnlockMatchMode = null;
+        pendingUnlockIdOnly = null;
         pendingUnlockTemplate = null;
     }
 
     @Override
     public void writeToNBT(CompoundTag tag, HolderLookup.Provider registries) {
         super.writeToNBT(tag, registries);
-        if (pendingUnlockMatchMode != null) {
-            tag.putString(TAG_UNLOCK_MATCH_MODE, pendingUnlockMatchMode.name());
+        if (pendingUnlockIdOnly != null) {
+            tag.putString(TAG_UNLOCK_MATCH_MODE,
+                    pendingUnlockIdOnly ? "ID_ONLY" : "STRICT");
         }
         if (pendingUnlockTemplate != null && !pendingUnlockTemplate.isEmpty()) {
             tag.put(TAG_UNLOCK_TEMPLATE,
@@ -410,14 +398,14 @@ public class StablePatternProviderLogic extends PatternProviderLogic {
     @Override
     public void readFromNBT(CompoundTag tag, HolderLookup.Provider registries) {
         super.readFromNBT(tag, registries);
-        pendingUnlockMatchMode = null;
+        pendingUnlockIdOnly = null;
         pendingUnlockTemplate = null;
         if (tag.contains(TAG_UNLOCK_MATCH_MODE, Tag.TAG_STRING)) {
-            try {
-                pendingUnlockMatchMode =
-                        MatchMode.valueOf(tag.getString(TAG_UNLOCK_MATCH_MODE));
-            } catch (IllegalArgumentException ignored) {
-                pendingUnlockMatchMode = null;
+            var savedMode = tag.getString(TAG_UNLOCK_MATCH_MODE);
+            if ("ID_ONLY".equals(savedMode)) {
+                pendingUnlockIdOnly = true;
+            } else if ("STRICT".equals(savedMode)) {
+                pendingUnlockIdOnly = false;
             }
         }
         if (tag.contains(TAG_UNLOCK_TEMPLATE, Tag.TAG_COMPOUND)) {

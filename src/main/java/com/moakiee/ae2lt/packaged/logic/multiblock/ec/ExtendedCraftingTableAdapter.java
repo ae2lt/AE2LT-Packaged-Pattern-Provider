@@ -34,8 +34,7 @@ import appeng.api.stacks.GenericStack;
 import appeng.api.stacks.KeyCounter;
 
 import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
-import com.moakiee.thunderbolt.ae2.overload.model.MatchMode;
-import com.moakiee.thunderbolt.ae2.overload.pattern.OverloadedProviderOnlyPatternDetails;
+import com.moakiee.ae2lt.packaged.patternprovider.OverloadPatternSemantics;
 import com.moakiee.ae2lt.packaged.item.AdapterIds;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchPlan;
 import com.moakiee.ae2lt.packaged.logic.multiblock.VirtualCraftingAdapter;
@@ -296,13 +295,13 @@ public final class ExtendedCraftingTableAdapter implements VirtualCraftingAdapte
      *
      * <p>Strictness is split by the pattern's output match mode:
      * <ul>
-     *   <li>{@link MatchMode#STRICT} (default for vanilla patterns):
+     *   <li>Strict mode (default for vanilla patterns):
      *       ingredient.test must accept the pattern's declared input stack
      *       with its DataComponents/NBT intact, and the pattern output key
      *       must equal {@code AEItemKey.of(recipe.result)} exactly. This
      *       locks in the precise recipe variant so plan time can trust the
      *       KeyCounter without re-running ingredient.test.</li>
-     *   <li>{@link MatchMode#ID_ONLY} (AE2LT overload opt-in): bind only
+     *   <li>ID-only mode (AE2LT overload opt-in): bind only
      *       requires the ingredient to accept some item-id-equal variant
      *       (via {@link Ingredient#getItems()}). The runtime KeyCounter may
      *       carry a different NBT variant, so plan time falls back to a
@@ -343,7 +342,7 @@ public final class ExtendedCraftingTableAdapter implements VirtualCraftingAdapte
             return null;
         }
 
-        boolean overload = outputMode(pattern, 0) == MatchMode.ID_ONLY;
+        boolean overload = OverloadPatternSemantics.isIdOnlyOutput(pattern, 0);
 
         for (var holder : recipes(level)) {
             var recipe = holder.value();
@@ -668,19 +667,9 @@ public final class ExtendedCraftingTableAdapter implements VirtualCraftingAdapte
             return false;
         }
         var actual = AEItemKey.of(result);
-        return outputMode(pattern, 0) == MatchMode.ID_ONLY
+        return OverloadPatternSemantics.isIdOnlyOutput(pattern, 0)
                 ? expectedKey.dropSecondary().equals(actual.dropSecondary())
                 : expectedKey.equals(actual);
-    }
-
-    private static MatchMode outputMode(IPatternDetails pattern, int outputIndex) {
-        if (pattern instanceof OverloadedProviderOnlyPatternDetails overload) {
-            var outputs = overload.overloadPatternDetailsView().outputs();
-            if (outputIndex >= 0 && outputIndex < outputs.size()) {
-                return outputs.get(outputIndex).matchMode();
-            }
-        }
-        return MatchMode.STRICT;
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

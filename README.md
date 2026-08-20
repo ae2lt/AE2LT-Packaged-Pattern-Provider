@@ -9,6 +9,8 @@ AE2LT Packaged Pattern Provider is an AE2 Lightning Tech addon for Minecraft 1.2
 - Minecraft: 1.21.1
 - Java: 21
 - NeoForge: 21.1.x
+- AE2 Lightning Tech: 2.0.9 (`refactor/thunderbolt-three-layer-clean`)
+- Thunderbolt Core: 2.0-alpha (`refactor/thunderbolt-three-layer-clean`)
 - Current addon / AE2LT tested NeoForge: 21.1.230
 - AE2 official 1.21.1 branch observed NeoForge: 21.1.169
 - Gradle Wrapper: 8.8
@@ -19,6 +21,7 @@ Current local verification observed a NeoForge patch-version difference: this ad
 
 - Applied Energistics 2
 - AE2 Lightning Tech
+- Thunderbolt Core
 - AE2WTLib
 - Curios
 - NeoForge
@@ -50,6 +53,7 @@ javac -version
 For source-level debugging or cross-project integration work, clone:
 
 - [AE2 Lightning Tech](https://github.com/MOAKIEE/AE2-Lightning-Tech)
+- [Thunderbolt Core](https://github.com/ae2lt/Thunderbolt-Core)
 - [Applied Energistics 2](https://github.com/AppliedEnergistics/Applied-Energistics-2)
 
 ## Building Applied Energistics 2 Locally
@@ -66,30 +70,45 @@ Local phase-1 verification observed an output jar similar to:
 ## Building AE2 Lightning Tech Locally
 
 ```powershell
+cd C:\Users\Administrator\IdeaProjects\Thunderbolt-Core
+git checkout refactor/thunderbolt-three-layer-clean
+.\gradlew.bat clean build publishToMavenLocal --no-daemon
+
+cd C:\Users\Administrator\IdeaProjects\AE2-Lightning-Tech
+git checkout refactor/thunderbolt-three-layer-clean
 .\gradlew.bat clean build --no-daemon
 ```
 
-Local phase-1 verification observed an output jar similar to:
+The matching refactor builds produce jars similar to:
 
-`ae2lt-1.1.0.jar` (current `dev/1.2` artifact)
+- `thunderbolt-2.0-alpha.jar`
+- `ae2lt-2.0.9.jar`
 
 ## Configuring AE2LT Dependency
 
-This project resolves AE2 Lightning Tech from the local Maven repository by default:
+This branch uses the sibling AE2 Lightning Tech refactor build by default:
 
 ```properties
-ae2lt_maven_notation=com.moakiee.ae2lt:AE2-Lightning-Tech:2.0.0
+ae2lt_maven_notation=
+ae2lt_jar=../AE2-Lightning-Tech/build/libs/ae2lt-2.0.9.jar
 ```
 
-Run this from the AE2 Lightning Tech project root before building this project:
+You can override the jar through `ae2lt_jar`, `AE2LT_JAR`, or the legacy
+`ae2lt_local_jar` property. A Maven coordinate may still be supplied through
+`ae2lt_maven_notation`; its transitive development runtime is disabled because
+this addon declares its own runtime mod set.
 
-```powershell
-.\gradlew.bat publishToMavenLocal
+## Configuring Thunderbolt Dependency
+
+Thunderbolt 2.0-alpha is resolved from `mavenLocal()` by default after running
+its `publishToMavenLocal` task. To use a jar directly, clear
+`thunderbolt_maven_notation` and set `thunderbolt_jar`, `THUNDERBOLT_JAR`, or the
+legacy `thunderbolt_local_jar` property:
+
+```properties
+thunderbolt_maven_notation=
+thunderbolt_jar=../Thunderbolt-Core/build/libs/thunderbolt-2.0-alpha.jar
 ```
-
-Gradle finds the artifact through `mavenLocal()` in `build.gradle`; its transitive
-development runtime is disabled because this addon declares its own runtime mod
-set.
 
 ## Build
 
@@ -141,11 +160,11 @@ These entries reflect source code present in the repository, not a blanket state
 
 ## Known Limitations
 
-- The project builds against AE2 Lightning Tech published to Maven Local.
+- This branch targets AE2LT `2.0.9` and Thunderbolt `2.0-alpha`; it is not load-compatible with the pre-refactor dependency line.
 - The AE2 official `1.21.1` branch and the addon / AE2LT projects currently observe different NeoForge patch versions.
 - `PackagedPatternProviderLogic` dispatch fallback and registry hardening are in place, but test coverage is still focused on targeted regression paths rather than broad integration scenarios.
 - Optional-mod reflection handling is still mixed, but the cached lookup helper now covers several hot-path adapters. New optional-mod hot paths should prefer cached lookup helpers first, and only move to `MethodHandle` / `VarHandle` when profiling shows a real win.
-- A clean machine or CI runner must publish/install AE2 Lightning Tech into its local Maven repository before building this project.
+- A clean machine or CI runner must provide matching AE2LT and Thunderbolt refactor artifacts through the documented local-jar or Maven overrides.
 
 ## Troubleshooting
 

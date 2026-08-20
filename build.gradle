@@ -58,6 +58,28 @@ base {
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 
+def ae2ltMavenNotation = providers.gradleProperty("ae2lt_maven_notation").orNull
+def ae2ltJarPath = providers.gradleProperty("ae2lt_jar").orNull
+if (ae2ltJarPath == null || ae2ltJarPath.isBlank()) {
+    ae2ltJarPath = providers.gradleProperty("ae2lt_local_jar").orNull
+}
+if (ae2ltJarPath == null || ae2ltJarPath.isBlank()) {
+    ae2ltJarPath = System.getenv("AE2LT_JAR")
+}
+def ae2ltJarFile = ae2ltJarPath != null && !ae2ltJarPath.isBlank() ? file(ae2ltJarPath) : null
+
+def thunderboltMavenNotation = providers.gradleProperty("thunderbolt_maven_notation").orNull
+def thunderboltJarPath = providers.gradleProperty("thunderbolt_jar").orNull
+if (thunderboltJarPath == null || thunderboltJarPath.isBlank()) {
+    thunderboltJarPath = providers.gradleProperty("thunderbolt_local_jar").orNull
+}
+if (thunderboltJarPath == null || thunderboltJarPath.isBlank()) {
+    thunderboltJarPath = System.getenv("THUNDERBOLT_JAR")
+}
+def thunderboltJarFile = thunderboltJarPath != null && !thunderboltJarPath.isBlank()
+        ? file(thunderboltJarPath)
+        : null
+
 neoForge {
     // Specify the version of NeoForge to use.
     version = project.neo_version
@@ -141,14 +163,36 @@ dependencies {
     compileOnly "top.theillusivec4.curios:curios-neoforge:${curios_version}:api"
     testImplementation "org.junit.jupiter:junit-jupiter:5.10.2"
 
-    // Thunderbolt Core owns the overload pattern model used by AE2LT 2.0.0.
-    compileOnly "com.moakiee.thunderbolt:thunderbolt:${thunderbolt_version}"
-    testRuntimeOnly "com.moakiee.thunderbolt:thunderbolt:${thunderbolt_version}"
+    if (thunderboltMavenNotation != null && !thunderboltMavenNotation.isBlank()) {
+        compileOnly thunderboltMavenNotation
+        runtimeOnly thunderboltMavenNotation
+        testRuntimeOnly thunderboltMavenNotation
+    } else {
+        if (thunderboltJarFile == null || !thunderboltJarFile.exists()) {
+            throw new GradleException(
+                    "Thunderbolt jar not found. Set 'thunderbolt_jar' in gradle.properties, " +
+                            "keep legacy 'thunderbolt_local_jar', or set the THUNDERBOLT_JAR environment variable. " +
+                            "Current value: " + (thunderboltJarPath == null ? "<unset>" : thunderboltJarPath))
+        }
+        compileOnly files(thunderboltJarFile)
+        runtimeOnly files(thunderboltJarFile)
+        testRuntimeOnly files(thunderboltJarFile)
+    }
 
-    implementation(ae2lt_maven_notation) {
-        // This addon declares its own development runtime. Do not inherit
-        // AE2LT's full local-development mod set from Gradle metadata.
-        transitive = false
+    if (ae2ltMavenNotation != null && !ae2ltMavenNotation.isBlank()) {
+        implementation(ae2ltMavenNotation) {
+            // This addon declares its own development runtime. Do not inherit
+            // AE2LT's full local-development mod set from Gradle metadata.
+            transitive = false
+        }
+    } else {
+        if (ae2ltJarFile == null || !ae2ltJarFile.exists()) {
+            throw new GradleException(
+                    "AE2LT jar not found. Set 'ae2lt_jar' in gradle.properties, " +
+                            "keep legacy 'ae2lt_local_jar', or set the AE2LT_JAR environment variable. " +
+                            "Current value: " + (ae2ltJarPath == null ? "<unset>" : ae2ltJarPath))
+        }
+        implementation files(ae2ltJarFile)
     }
 
     runtimeOnly "top.theillusivec4.curios:curios-neoforge:${curios_version}"

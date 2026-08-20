@@ -15,8 +15,10 @@ import org.junit.jupiter.api.Test;
 class AE2LTDependencyBoundaryTest {
     private static final Path MAIN_SOURCES = Path.of("src/main/java");
     private static final Pattern AE2LT_REFERENCE =
-            Pattern.compile("com\\.moakiee\\.ae2lt\\.([A-Za-z0-9_]+)");
+            Pattern.compile("com\\.moakiee\\.ae2lt\\.([A-Za-z0-9_]+)(?:\\.[A-Za-z0-9_]+)*");
     private static final Set<String> ALLOWED_ROOT_PACKAGES = Set.of("api", "packaged");
+    private static final String WIRELESS_SUPPORT_CONTRACT =
+            "com.moakiee.ae2lt.logic.wireless.support.";
 
     @Test
     void mainSourcesOnlyUseAE2LTPublicApi() throws IOException {
@@ -28,7 +30,8 @@ class AE2LTDependencyBoundaryTest {
                 for (var lineIndex = 0; lineIndex < lines.size(); lineIndex++) {
                     var matcher = AE2LT_REFERENCE.matcher(lines.get(lineIndex));
                     while (matcher.find()) {
-                        if (!ALLOWED_ROOT_PACKAGES.contains(matcher.group(1))) {
+                        if (!ALLOWED_ROOT_PACKAGES.contains(matcher.group(1))
+                                && !matcher.group().startsWith(WIRELESS_SUPPORT_CONTRACT)) {
                             violations.add(source + ":" + (lineIndex + 1) + " -> " + matcher.group());
                         }
                     }
@@ -38,7 +41,7 @@ class AE2LTDependencyBoundaryTest {
 
         assertTrue(
                 violations.isEmpty(),
-                () -> "Main sources must not depend on AE2LT internals. Use com.moakiee.ae2lt.api.* only:\n"
+                () -> "Main sources must use AE2LT public APIs or the documented wireless support contract:\n"
                         + String.join("\n", violations));
     }
 
@@ -49,6 +52,7 @@ class AE2LTDependencyBoundaryTest {
         var expectedImplementationFiles = List.of(
                 "AllowedOutputFilter.java",
                 "InsertOnlyPatternProviderReturnInventory.java",
+                "OverloadPatternSemantics.java",
                 "PatternProviderPowerCost.java",
                 "StablePatternProviderBlockEntity.java",
                 "StablePatternProviderLogic.java",

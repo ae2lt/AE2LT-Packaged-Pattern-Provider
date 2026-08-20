@@ -29,9 +29,9 @@ import appeng.blockentity.crafting.PatternProviderBlockEntity;
 
 import com.moakiee.ae2lt.api.patternprovider.WirelessPatternProviderHost;
 import com.moakiee.ae2lt.api.patternprovider.WirelessPatternProviderPolicy;
-import com.moakiee.thunderbolt.api.wireless.WirelessConnectionLists;
-import com.moakiee.thunderbolt.api.wireless.WirelessConnectionRef;
-import com.moakiee.thunderbolt.api.wireless.WirelessConnectionValidator;
+import com.moakiee.ae2lt.logic.wireless.support.WirelessConnectionLists;
+import com.moakiee.ae2lt.logic.wireless.support.WirelessConnectionRef;
+import com.moakiee.ae2lt.logic.wireless.support.WirelessConnectionValidator;
 
 /**
  * PP-owned block-entity foundation for the packaged provider.
