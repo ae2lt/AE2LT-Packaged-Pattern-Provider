@@ -9,8 +9,8 @@ AE2LT Packaged Pattern Provider is an AE2 Lightning Tech addon for Minecraft 1.2
 - Minecraft: 1.21.1
 - Java: 21
 - NeoForge: 21.1.x
-- AE2 Lightning Tech: 2.0.9 (`refactor/thunderbolt-three-layer-clean`)
-- Thunderbolt Core: 2.0-alpha (`refactor/thunderbolt-three-layer-clean`)
+- AE2 Lightning Tech: 2.1.0-beta.1 (`refactor/thunderbolt-three-layer-clean`)
+- Thunderbolt Core: 2.0.0-beta.1 (`refactor/thunderbolt-three-layer-clean`)
 - Current addon / AE2LT tested NeoForge: 21.1.230
 - AE2 official 1.21.1 branch observed NeoForge: 21.1.169
 - Gradle Wrapper: 8.8
@@ -81,8 +81,8 @@ git checkout refactor/thunderbolt-three-layer-clean
 
 The matching refactor builds produce jars similar to:
 
-- `thunderbolt-2.0-alpha.jar`
-- `ae2lt-2.0.9.jar`
+- `thunderbolt-2.0.0-beta.1.jar`
+- `ae2lt-2.1.0-beta.1.jar`
 
 ## Configuring AE2LT Dependency
 
@@ -90,7 +90,7 @@ This branch uses the sibling AE2 Lightning Tech refactor build by default:
 
 ```properties
 ae2lt_maven_notation=
-ae2lt_jar=../AE2-Lightning-Tech/build/libs/ae2lt-2.0.9.jar
+ae2lt_jar=../AE2-Lightning-Tech/build/libs/ae2lt-2.1.0-beta.1.jar
 ```
 
 You can override the jar through `ae2lt_jar`, `AE2LT_JAR`, or the legacy
@@ -100,14 +100,14 @@ this addon declares its own runtime mod set.
 
 ## Configuring Thunderbolt Dependency
 
-Thunderbolt 2.0-alpha is resolved from `mavenLocal()` by default after running
+Thunderbolt 2.0.0-beta.1 is resolved from `mavenLocal()` by default after running
 its `publishToMavenLocal` task. To use a jar directly, clear
 `thunderbolt_maven_notation` and set `thunderbolt_jar`, `THUNDERBOLT_JAR`, or the
 legacy `thunderbolt_local_jar` property:
 
 ```properties
 thunderbolt_maven_notation=
-thunderbolt_jar=../Thunderbolt-Core/build/libs/thunderbolt-2.0-alpha.jar
+thunderbolt_jar=../thunderbolt/build/libs/thunderbolt-2.0.0-beta.1.jar
 ```
 
 ## Build
@@ -160,7 +160,7 @@ These entries reflect source code present in the repository, not a blanket state
 
 ## Known Limitations
 
-- This branch targets AE2LT `2.0.9` and Thunderbolt `2.0-alpha`; it is not load-compatible with the pre-refactor dependency line.
+- This branch targets AE2LT `2.1.0-beta.1` and Thunderbolt `2.0.0-beta.1`; it is not load-compatible with the pre-refactor dependency line.
 - The AE2 official `1.21.1` branch and the addon / AE2LT projects currently observe different NeoForge patch versions.
 - `PackagedPatternProviderLogic` dispatch fallback and registry hardening are in place, but test coverage is still focused on targeted regression paths rather than broad integration scenarios.
 - Optional-mod reflection handling is still mixed, but the cached lookup helper now covers several hot-path adapters. New optional-mod hot paths should prefer cached lookup helpers first, and only move to `MethodHandle` / `VarHandle` when profiling shows a real win.
