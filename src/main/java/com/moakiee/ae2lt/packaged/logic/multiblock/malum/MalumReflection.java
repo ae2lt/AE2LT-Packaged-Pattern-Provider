@@ -14,8 +14,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
-import net.neoforged.neoforge.common.crafting.SizedIngredient;
-import net.neoforged.neoforge.items.IItemHandlerModifiable;
+import net.minecraftforge.items.IItemHandlerModifiable;
 
 import com.moakiee.ae2lt.packaged.logic.multiblock.ReflectionSupport;
 
@@ -220,7 +219,7 @@ final class MalumReflection {
             }
             var existing = inventory.getStackInSlot(slot);
             if (!existing.isEmpty()) {
-                if (!ItemStack.isSameItemSameComponents(existing, stack)) {
+                if (!ItemStack.isSameItemSameTags(existing, stack)) {
                     return false;
                 }
                 long mergedCount = (long) existing.getCount() + stack.getCount();
@@ -352,13 +351,12 @@ final class MalumReflection {
     }
 
     @Nullable
-    static SizedIngredient infusionInput(Object recipe) {
+    static SizedIngredientView infusionInput(Object recipe) {
         ensureLookup();
         if (!isInfusionRecipe(recipe)) {
             return null;
         }
-        var value = fieldValue(infusionInputField, recipe);
-        return value instanceof SizedIngredient ingredient ? ingredient : null;
+        return sizedIngredient(fieldValue(infusionInputField, recipe));
     }
 
     @Nullable
@@ -371,7 +369,7 @@ final class MalumReflection {
     }
 
     @Nullable
-    static List<SizedIngredient> infusionExtras(Object recipe) {
+    static List<SizedIngredientView> infusionExtras(Object recipe) {
         ensureLookup();
         if (!isInfusionRecipe(recipe)) {
             return null;
@@ -471,6 +469,50 @@ final class MalumReflection {
         }
     }
 
+    /**
+     * Reads an ingredient-with-count pair off a Malum recipe field.
+     *
+     * <p>1.20.1 Malum uses Lodestone's own class here rather than a loader-level
+     * sized-ingredient type, so both members are resolved by name and the whole
+     * lookup degrades to {@code null} when the shape does not match.
+     */
+    @Nullable
+    private static SizedIngredientView sizedIngredient(@Nullable Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Ingredient ingredient) {
+            return new SizedIngredientView(ingredient, 1);
+        }
+        var ingredient = firstMemberOfType(value, Ingredient.class, "ingredient", "getIngredient");
+        if (ingredient == null) {
+            return null;
+        }
+        var count = firstMemberOfType(value, Integer.class, "count", "getCount", "amount", "getAmount");
+        return new SizedIngredientView((Ingredient) ingredient, count instanceof Integer i ? i : 1);
+    }
+
+    @Nullable
+    private static Object firstMemberOfType(Object target, Class<?> expected, String... names) {
+        for (var name : names) {
+            var field = ReflectionSupport.findFieldCached(target.getClass(), name).orElse(null);
+            if (field != null) {
+                var value = fieldValue(field, target);
+                if (expected.isInstance(value)) {
+                    return value;
+                }
+            }
+            var method = ReflectionSupport.findMethodCached(target.getClass(), name).orElse(null);
+            if (method != null) {
+                var value = ReflectionSupport.invoke(method, target).orElse(null);
+                if (expected.isInstance(value)) {
+                    return value;
+                }
+            }
+        }
+        return null;
+    }
+
     private static boolean booleanField(@Nullable Field field, Object target) {
         var value = fieldValue(field, target);
         return value instanceof Boolean b && b;
@@ -505,16 +547,17 @@ final class MalumReflection {
     }
 
     @Nullable
-    private static List<SizedIngredient> sizedIngredients(@Nullable Object value) {
+    private static List<SizedIngredientView> sizedIngredients(@Nullable Object value) {
         if (!(value instanceof List<?> list)) {
             return null;
         }
-        var ingredients = new ArrayList<SizedIngredient>(list.size());
+        var ingredients = new ArrayList<SizedIngredientView>(list.size());
         for (var ingredient : list) {
-            if (!(ingredient instanceof SizedIngredient sizedIngredient)) {
+            var view = sizedIngredient(ingredient);
+            if (view == null) {
                 return null;
             }
-            ingredients.add(sizedIngredient);
+            ingredients.add(view);
         }
         return List.copyOf(ingredients);
     }

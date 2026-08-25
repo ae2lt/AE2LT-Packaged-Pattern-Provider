@@ -163,7 +163,7 @@ public final class ManaPoolAdapter implements VirtualCraftingAdapter {
         if (liveHolder == null) {
             return null;
         }
-        var recipe = liveHolder.value();
+        var recipe = liveHolder;
         var result = recipe.getResultItem(level.registryAccess());
         if (result == null || result.isEmpty()) {
             return null;

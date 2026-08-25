@@ -14,7 +14,6 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
-import net.minecraft.world.item.crafting.RecipeHolder;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.gameevent.GameEvent;
 import net.minecraft.world.level.material.Fluid;
@@ -128,7 +127,7 @@ public final class PetalApothecaryAdapter implements VirtualCraftingAdapter {
         // then hang the CPU on a plan that never succeeds. Water source
         // inputs (bucket / fluid) live outside the recipe and are
         // therefore not checked here.
-        if (!patternInputsCoverRecipe(pattern, holder.value())) {
+        if (!patternInputsCoverRecipe(pattern, holder)) {
             return null;
         }
         return new BindingResult(new PetalBindHandle(holder), BindingMode.VIRTUAL);
@@ -216,7 +215,7 @@ public final class PetalApothecaryAdapter implements VirtualCraftingAdapter {
         if (!recognizesMain(level, mainPos, be)) {
             return null;
         }
-        var recipe = bind.holder().value();
+        var recipe = bind.holder();
         var result = recipe.getResultItem(level.registryAccess());
         if (result == null || result.isEmpty()) {
             return null;
@@ -442,11 +441,11 @@ public final class PetalApothecaryAdapter implements VirtualCraftingAdapter {
     }
 
     /**
-     * Bind-time cache: matched {@link RecipeHolder}. The recipe object
+     * Bind-time cache: matched {@link Recipe}. The recipe object
      * drives plan-time ingredient validation and output stacking. The
      * water-source choice is per-push and lives outside the handle.
      */
-    private record PetalBindHandle(RecipeHolder<?> holder) {
+    private record PetalBindHandle(Recipe<?> holder) {
     }
 
     private enum WaterSource {

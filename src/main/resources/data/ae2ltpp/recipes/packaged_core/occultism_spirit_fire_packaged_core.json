@@ -1,0 +1,16 @@
+{
+  "conditions": [
+    {
+      "type": "forge:mod_loaded",
+      "modid": "occultism"
+    }
+  ],
+  "type": "occultism:spirit_fire",
+  "ingredient": {
+    "item": "ae2ltpp:basic_packaged_core"
+  },
+  "result": {
+    "id": "ae2ltpp:occultism_spirit_fire_packaged_core",
+    "count": 1
+  }
+}

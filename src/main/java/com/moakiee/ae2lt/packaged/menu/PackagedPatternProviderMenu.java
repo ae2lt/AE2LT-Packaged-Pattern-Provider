@@ -24,10 +24,12 @@ import com.moakiee.ae2lt.packaged.patternprovider.StablePatternProviderBlockEnti
 
 public class PackagedPatternProviderMenu extends PatternProviderMenu
         implements FrequencyBindingMenuHost {
-    public static final MenuType<PackagedPatternProviderMenu> TYPE = MenuTypeBuilder
-            .create(PackagedPatternProviderMenu::new, PatternProviderLogicHost.class)
-            .buildUnregistered(ResourceLocation.fromNamespaceAndPath(
-                    AE2LTPackagedProvider.MODID, "packaged_pattern_provider"));
+    public static final MenuType<PackagedPatternProviderMenu> TYPE =
+            PackagedMenuTypeBuilder.buildUnregistered(
+                    MenuTypeBuilder.create(
+                            PackagedPatternProviderMenu::new, PatternProviderLogicHost.class),
+                    new ResourceLocation(
+                            AE2LTPackagedProvider.MODID, "packaged_pattern_provider"));
 
     @GuiSync(22000)
     public int returnMode;

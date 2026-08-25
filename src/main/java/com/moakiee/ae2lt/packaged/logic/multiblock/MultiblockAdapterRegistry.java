@@ -126,7 +126,7 @@ public final class MultiblockAdapterRegistry {
     }
 
     private static ResourceLocation defaultId(MultiblockAdapter adapter) {
-        return ResourceLocation.fromNamespaceAndPath(
+        return new ResourceLocation(
                 AE2LTPackagedProvider.MODID,
                 toSnakeCase(adapter.getClass().getSimpleName()));
     }

@@ -17,13 +17,13 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Ingredient;
-import net.minecraft.world.item.crafting.RecipeHolder;
+import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
-import net.neoforged.fml.ModList;
-import net.neoforged.neoforge.items.IItemHandler;
-import net.neoforged.neoforge.items.IItemHandlerModifiable;
+import net.minecraftforge.fml.ModList;
+import net.minecraftforge.items.IItemHandler;
+import net.minecraftforge.items.IItemHandlerModifiable;
 
 import appeng.api.config.Actionable;
 import appeng.api.crafting.IPatternDetails;
@@ -39,8 +39,7 @@ import com.moakiee.ae2lt.packaged.logic.multiblock.MultiblockAdapter;
 import com.moakiee.ae2lt.packaged.logic.multiblock.TargetSlot;
 import com.moakiee.ae2lt.packaged.logic.multiblock.binding.BindingMode;
 import com.moakiee.ae2lt.packaged.logic.multiblock.binding.BindingResult;
-import com.moakiee.thunderbolt.ae2.overload.model.MatchMode;
-import com.moakiee.thunderbolt.ae2.overload.pattern.OverloadedProviderOnlyPatternDetails;
+import com.moakiee.ae2lt.packaged.patternprovider.OverloadPatternSemantics;
 
 /**
  * Runtime adapter for Mystical Agriculture's Awakening Altar.
@@ -226,7 +225,7 @@ public final class AwakeningAltarAdapter implements MultiblockAdapter {
     @Nullable
     private static Object findCandidateRecipe(ServerLevel level, IPatternDetails pattern) {
         for (var holder : recipes(level)) {
-            var recipe = holder.value();
+            var recipe = holder;
             var result = resultItem(recipe, level);
             if (result == null || result.isEmpty() || !outputMatches(pattern, result)) {
                 continue;
@@ -514,32 +513,22 @@ public final class AwakeningAltarAdapter implements MultiblockAdapter {
 
     private static boolean hasSingleItemOutput(IPatternDetails pattern) {
         var outputs = pattern.getOutputs();
-        return outputs.size() == 1 && outputs.getFirst().what() instanceof AEItemKey;
+        return outputs.length == 1 && outputs[0].what() instanceof AEItemKey;
     }
 
     private static boolean outputMatches(IPatternDetails pattern, ItemStack result) {
         var outputs = pattern.getOutputs();
-        if (outputs.size() != 1) {
+        if (outputs.length != 1) {
             return false;
         }
-        var expected = outputs.getFirst();
+        var expected = outputs[0];
         if (!(expected.what() instanceof AEItemKey expectedKey) || expected.amount() != result.getCount()) {
             return false;
         }
         var actual = AEItemKey.of(result);
-        return outputMode(pattern, 0) == MatchMode.ID_ONLY
+        return OverloadPatternSemantics.isIdOnlyOutput(pattern, 0)
                 ? expectedKey.dropSecondary().equals(actual.dropSecondary())
                 : expectedKey.equals(actual);
-    }
-
-    private static MatchMode outputMode(IPatternDetails pattern, int outputIndex) {
-        if (pattern instanceof OverloadedProviderOnlyPatternDetails overload) {
-            var outputs = overload.overloadPatternDetailsView().outputs();
-            if (outputIndex >= 0 && outputIndex < outputs.size()) {
-                return outputs.get(outputIndex).matchMode();
-            }
-        }
-        return MatchMode.STRICT;
     }
 
     @Nullable
@@ -555,9 +544,9 @@ public final class AwakeningAltarAdapter implements MultiblockAdapter {
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static List<RecipeHolder<?>> recipes(ServerLevel level) {
+    private static List<Recipe<?>> recipes(ServerLevel level) {
         return BuiltInRegistries.RECIPE_TYPE.getOptional(RECIPE_TYPE_ID)
-                .map(type -> (List<RecipeHolder<?>>) (List<?>) level.getRecipeManager()
+                .map(type -> (List<Recipe<?>>) (List<?>) level.getRecipeManager()
                         .getAllRecipesFor((RecipeType) type))
                 .orElse(List.of());
     }
@@ -571,7 +560,7 @@ public final class AwakeningAltarAdapter implements MultiblockAdapter {
     }
 
     private static ResourceLocation maId(String path) {
-        return ResourceLocation.fromNamespaceAndPath(MOD_ID, path);
+        return new ResourceLocation(MOD_ID, path);
     }
 
     private record EssenceAssignment(AEItemKey key, int count) {

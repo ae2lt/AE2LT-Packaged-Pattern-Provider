@@ -16,16 +16,15 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.crafting.CraftingInput;
+import net.minecraft.world.inventory.CraftingContainer;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
-import net.minecraft.world.item.crafting.RecipeHolder;
 import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
-import net.neoforged.fml.ModList;
-import net.neoforged.neoforge.items.IItemHandler;
-import net.neoforged.neoforge.items.IItemHandlerModifiable;
+import net.minecraftforge.fml.ModList;
+import net.minecraftforge.items.IItemHandler;
+import net.minecraftforge.items.IItemHandlerModifiable;
 
 import appeng.api.crafting.IPatternDetails;
 import appeng.api.networking.security.IActionSource;
@@ -34,8 +33,7 @@ import appeng.api.stacks.GenericStack;
 import appeng.api.stacks.KeyCounter;
 
 import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
-import com.moakiee.thunderbolt.ae2.overload.model.MatchMode;
-import com.moakiee.thunderbolt.ae2.overload.pattern.OverloadedProviderOnlyPatternDetails;
+import com.moakiee.ae2lt.packaged.patternprovider.OverloadPatternSemantics;
 import com.moakiee.ae2lt.packaged.item.AdapterIds;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchPlan;
 import com.moakiee.ae2lt.packaged.logic.multiblock.VirtualCraftingAdapter;
@@ -296,13 +294,13 @@ public final class ExtendedCraftingTableAdapter implements VirtualCraftingAdapte
      *
      * <p>Strictness is split by the pattern's output match mode:
      * <ul>
-     *   <li>{@link MatchMode#STRICT} (default for vanilla patterns):
+     *   <li>Strict mode (default for vanilla patterns):
      *       ingredient.test must accept the pattern's declared input stack
      *       with its DataComponents/NBT intact, and the pattern output key
      *       must equal {@code AEItemKey.of(recipe.result)} exactly. This
      *       locks in the precise recipe variant so plan time can trust the
      *       KeyCounter without re-running ingredient.test.</li>
-     *   <li>{@link MatchMode#ID_ONLY} (AE2LT overload opt-in): bind only
+     *   <li>ID-only mode (AE2LT overload opt-in): bind only
      *       requires the ingredient to accept some item-id-equal variant
      *       (via {@link Ingredient#getItems()}). The runtime KeyCounter may
      *       carry a different NBT variant, so plan time falls back to a
@@ -317,7 +315,7 @@ public final class ExtendedCraftingTableAdapter implements VirtualCraftingAdapte
      */
     @Nullable
     private static EcBindHandle searchHandle(ServerLevel level, IPatternDetails pattern, TableSpec spec) {
-        var patternOut = pattern.getOutputs().getFirst();
+        var patternOut = pattern.getOutputs()[0];
         if (!(patternOut.what() instanceof AEItemKey patternOutKey) || patternOut.amount() <= 0) {
             return null;
         }
@@ -343,10 +341,10 @@ public final class ExtendedCraftingTableAdapter implements VirtualCraftingAdapte
             return null;
         }
 
-        boolean overload = outputMode(pattern, 0) == MatchMode.ID_ONLY;
+        boolean overload = OverloadPatternSemantics.isIdOnlyOutput(pattern, 0);
 
         for (var holder : recipes(level)) {
-            var recipe = holder.value();
+            var recipe = holder;
             var resultPreview = resultItem(recipe, level);
             if (resultPreview == null || resultPreview.isEmpty()) {
                 continue;
@@ -470,7 +468,7 @@ public final class ExtendedCraftingTableAdapter implements VirtualCraftingAdapte
 
     /**
      * Places one ingredient's representative stack into a grid layout the
-     * EC {@code TableCraftingInput.of} factory can trim and feed to
+     * EC {@code TableCraftingContainer.of} factory can trim and feed to
      * {@link Recipe#matches}.
      *
      * <p>For shaped recipes we walk the ingredient list in its native
@@ -544,9 +542,9 @@ public final class ExtendedCraftingTableAdapter implements VirtualCraftingAdapte
     }
 
     @Nullable
-    private static Object findMatchingRecipe(ServerLevel level, CraftingInput input) {
+    private static Object findMatchingRecipe(ServerLevel level, CraftingContainer input) {
         for (var holder : recipes(level)) {
-            var recipe = holder.value();
+            var recipe = holder;
             if (recipeMatches(recipe, input, level)) {
                 return recipe;
             }
@@ -554,16 +552,16 @@ public final class ExtendedCraftingTableAdapter implements VirtualCraftingAdapte
         return null;
     }
 
-    private static boolean canApplyRemaining(IItemHandler handler, int gridSize, CraftingInput input,
+    private static boolean canApplyRemaining(IItemHandler handler, int gridSize, CraftingContainer input,
                                              NonNullList<ItemStack> remaining) {
-        if (remaining.size() < input.size()) {
+        if (remaining.size() < input.getContainerSize()) {
             return false;
         }
         int top = EcReflection.top(input);
         int left = EcReflection.left(input);
-        for (int y = 0; y < input.height(); y++) {
-            for (int x = 0; x < input.width(); x++) {
-                int inputIndex = x + y * input.width();
+        for (int y = 0; y < input.getHeight(); y++) {
+            for (int x = 0; x < input.getWidth(); x++) {
+                int inputIndex = x + y * input.getWidth();
                 int slot = x + left + (y + top) * gridSize;
                 var current = handler.getStackInSlot(slot);
                 if (current.isEmpty()) {
@@ -579,7 +577,7 @@ public final class ExtendedCraftingTableAdapter implements VirtualCraftingAdapte
                 if (afterConsume <= 0) {
                     continue;
                 }
-                if (!ItemStack.isSameItemSameComponents(current, remainder)) {
+                if (!ItemStack.isSameItemSameTags(current, remainder)) {
                     return false;
                 }
                 if (afterConsume + remainder.getCount() > current.getMaxStackSize()) {
@@ -590,13 +588,13 @@ public final class ExtendedCraftingTableAdapter implements VirtualCraftingAdapte
         return true;
     }
 
-    private static void applyCraftRemainders(IItemHandlerModifiable handler, int gridSize, CraftingInput input,
+    private static void applyCraftRemainders(IItemHandlerModifiable handler, int gridSize, CraftingContainer input,
                                              NonNullList<ItemStack> remaining) {
         int top = EcReflection.top(input);
         int left = EcReflection.left(input);
-        for (int y = 0; y < input.height(); y++) {
-            for (int x = 0; x < input.width(); x++) {
-                int inputIndex = x + y * input.width();
+        for (int y = 0; y < input.getHeight(); y++) {
+            for (int x = 0; x < input.getWidth(); x++) {
+                int inputIndex = x + y * input.getWidth();
                 int slot = x + left + (y + top) * gridSize;
                 var current = handler.getStackInSlot(slot);
                 if (!current.isEmpty()) {
@@ -611,7 +609,7 @@ public final class ExtendedCraftingTableAdapter implements VirtualCraftingAdapte
                 var after = handler.getStackInSlot(slot);
                 if (after.isEmpty()) {
                     handler.setStackInSlot(slot, remainder.copy());
-                } else if (ItemStack.isSameItemSameComponents(after, remainder)) {
+                } else if (ItemStack.isSameItemSameTags(after, remainder)) {
                     var combined = after.copy();
                     combined.grow(remainder.getCount());
                     handler.setStackInSlot(slot, combined);
@@ -647,7 +645,7 @@ public final class ExtendedCraftingTableAdapter implements VirtualCraftingAdapte
 
     private static boolean hasSingleItemOutput(IPatternDetails pattern) {
         var outputs = pattern.getOutputs();
-        return outputs.size() == 1 && outputs.getFirst().what() instanceof AEItemKey;
+        return outputs.length == 1 && outputs[0].what() instanceof AEItemKey;
     }
 
     /**
@@ -659,32 +657,22 @@ public final class ExtendedCraftingTableAdapter implements VirtualCraftingAdapte
     private static boolean outputMatchesBatch(IPatternDetails pattern, ItemStack result,
                                                long expectedTotalCount) {
         var outputs = pattern.getOutputs();
-        if (outputs.size() != 1) {
+        if (outputs.length != 1) {
             return false;
         }
-        var expected = outputs.getFirst();
+        var expected = outputs[0];
         if (!(expected.what() instanceof AEItemKey expectedKey)
                 || expected.amount() != expectedTotalCount) {
             return false;
         }
         var actual = AEItemKey.of(result);
-        return outputMode(pattern, 0) == MatchMode.ID_ONLY
+        return OverloadPatternSemantics.isIdOnlyOutput(pattern, 0)
                 ? expectedKey.dropSecondary().equals(actual.dropSecondary())
                 : expectedKey.equals(actual);
     }
 
-    private static MatchMode outputMode(IPatternDetails pattern, int outputIndex) {
-        if (pattern instanceof OverloadedProviderOnlyPatternDetails overload) {
-            var outputs = overload.overloadPatternDetailsView().outputs();
-            if (outputIndex >= 0 && outputIndex < outputs.size()) {
-                return outputs.get(outputIndex).matchMode();
-            }
-        }
-        return MatchMode.STRICT;
-    }
-
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static boolean recipeMatches(Object recipe, CraftingInput input, ServerLevel level) {
+    private static boolean recipeMatches(Object recipe, CraftingContainer input, ServerLevel level) {
         try {
             return recipe instanceof Recipe<?> r && ((Recipe) r).matches(input, level);
         } catch (RuntimeException | LinkageError ignored) {
@@ -694,7 +682,7 @@ public final class ExtendedCraftingTableAdapter implements VirtualCraftingAdapte
 
     @Nullable
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static ItemStack assemble(Object recipe, CraftingInput input, ServerLevel level) {
+    private static ItemStack assemble(Object recipe, CraftingContainer input, ServerLevel level) {
         try {
             return recipe instanceof Recipe<?> r
                     ? ((Recipe) r).assemble(input, level.registryAccess())
@@ -706,7 +694,7 @@ public final class ExtendedCraftingTableAdapter implements VirtualCraftingAdapte
 
     @Nullable
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static NonNullList<ItemStack> remainingItems(Object recipe, CraftingInput input) {
+    private static NonNullList<ItemStack> remainingItems(Object recipe, CraftingContainer input) {
         try {
             return recipe instanceof Recipe<?> r
                     ? ((Recipe) r).getRemainingItems(input)
@@ -741,9 +729,9 @@ public final class ExtendedCraftingTableAdapter implements VirtualCraftingAdapte
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static List<RecipeHolder<?>> recipes(ServerLevel level) {
+    private static List<Recipe<?>> recipes(ServerLevel level) {
         return BuiltInRegistries.RECIPE_TYPE.getOptional(RECIPE_TYPE_ID)
-                .map(type -> (List<RecipeHolder<?>>) (List<?>) level.getRecipeManager()
+                .map(type -> (List<Recipe<?>>) (List<?>) level.getRecipeManager()
                         .getAllRecipesFor((RecipeType) type))
                 .orElse(List.of());
     }
@@ -775,7 +763,7 @@ public final class ExtendedCraftingTableAdapter implements VirtualCraftingAdapte
     }
 
     private static ResourceLocation ecId(String path) {
-        return ResourceLocation.fromNamespaceAndPath(MOD_ID, path);
+        return new ResourceLocation(MOD_ID, path);
     }
 
     private record TableSpec(ResourceLocation blockId, int gridSize, int tier) {
@@ -852,20 +840,20 @@ public final class ExtendedCraftingTableAdapter implements VirtualCraftingAdapte
         }
 
         @Nullable
-        static CraftingInput createTableInput(int size, List<ItemStack> stacks, int tier) {
+        static CraftingContainer createTableInput(int size, List<ItemStack> stacks, int tier) {
             ensureLookup();
             if (tableInputOfMethod == null) {
                 return null;
             }
             try {
                 var value = tableInputOfMethod.invoke(null, size, size, stacks, tier);
-                return value instanceof CraftingInput input ? input : null;
+                return value instanceof CraftingContainer input ? input : null;
             } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
                 return null;
             }
         }
 
-        static int top(CraftingInput input) {
+        static int top(CraftingContainer input) {
             ensureLookup();
             if (tableInputTopMethod == null) {
                 return 0;
@@ -878,7 +866,7 @@ public final class ExtendedCraftingTableAdapter implements VirtualCraftingAdapte
             }
         }
 
-        static int left(CraftingInput input) {
+        static int left(CraftingContainer input) {
             ensureLookup();
             if (tableInputLeftMethod == null) {
                 return 0;

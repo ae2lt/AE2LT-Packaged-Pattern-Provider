@@ -1,0 +1,47 @@
+{
+  "conditions": [
+    {
+      "type": "forge:mod_loaded",
+      "modid": "mysticalagriculture"
+    }
+  ],
+  "type": "mysticalagriculture:awakening",
+  "input": {
+    "item": "ae2ltpp:basic_packaged_core"
+  },
+  "essences": [
+    {
+      "id": "mysticalagriculture:air_essence",
+      "count": 10
+    },
+    {
+      "id": "mysticalagriculture:earth_essence",
+      "count": 10
+    },
+    {
+      "id": "mysticalagriculture:water_essence",
+      "count": 10
+    },
+    {
+      "id": "mysticalagriculture:fire_essence",
+      "count": 10
+    }
+  ],
+  "ingredients": [
+    {
+      "item": "mysticalagriculture:cognizant_dust"
+    },
+    {
+      "item": "mysticalagriculture:cognizant_dust"
+    },
+    {
+      "item": "mysticalagriculture:cognizant_dust"
+    },
+    {
+      "item": "mysticalagriculture:cognizant_dust"
+    }
+  ],
+  "result": {
+    "id": "ae2ltpp:ma_awakening_altar_packaged_core"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "conditions": [
+    {
+      "type": "forge:mod_loaded",
+      "modid": "botania"
+    }
+  ],
+  "type": "botania:elven_trade",
+  "ingredients": [
+    {
+      "item": "ae2ltpp:basic_packaged_core"
+    }
+  ],
+  "output": [
+    {
+      "id": "ae2ltpp:botania_alfheim_portal_packaged_core"
+    }
+  ]
+}

@@ -18,13 +18,14 @@ import net.minecraft.world.Container;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
-import net.minecraft.world.item.crafting.RecipeHolder;
 import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
-import net.neoforged.fml.ModList;
-import net.neoforged.neoforge.capabilities.Capabilities;
-import net.neoforged.neoforge.items.IItemHandler;
+import net.minecraftforge.fml.ModList;
+import net.minecraftforge.common.capabilities.ForgeCapabilities;
+
+import com.moakiee.ae2lt.packaged.logic.multiblock.BlockCapabilities;
+import net.minecraftforge.items.IItemHandler;
 
 import appeng.api.config.Actionable;
 import appeng.api.crafting.IPatternDetails;
@@ -34,8 +35,7 @@ import appeng.api.stacks.GenericStack;
 import appeng.api.stacks.KeyCounter;
 
 import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
-import com.moakiee.thunderbolt.ae2.overload.model.MatchMode;
-import com.moakiee.thunderbolt.ae2.overload.pattern.OverloadedProviderOnlyPatternDetails;
+import com.moakiee.ae2lt.packaged.patternprovider.OverloadPatternSemantics;
 import com.moakiee.ae2lt.packaged.item.AdapterIds;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchPlan;
 import com.moakiee.ae2lt.packaged.logic.multiblock.InsertionStrategy;
@@ -239,7 +239,7 @@ public final class ArsNouveauImbuementChamberAdapter implements MultiblockAdapte
     @Nullable
     private static Object findCandidateRecipe(ServerLevel level, IPatternDetails pattern) {
         for (var holder : recipes(level)) {
-            var recipe = holder.value();
+            var recipe = holder;
             var result = resultItem(recipe, level);
             if (result.isEmpty() || !outputMatches(pattern, result)) {
                 continue;
@@ -285,7 +285,7 @@ public final class ArsNouveauImbuementChamberAdapter implements MultiblockAdapte
     @Nullable
     private static CompletedRecipe findCompletedRecipe(ServerLevel level, BlockPos mainPos, ItemStack outputStack) {
         for (var holder : recipes(level)) {
-            var recipe = holder.value();
+            var recipe = holder;
             var result = resultItem(recipe, level);
             if (!sameStackAndCount(outputStack, result)) {
                 continue;
@@ -416,10 +416,7 @@ public final class ArsNouveauImbuementChamberAdapter implements MultiblockAdapte
 
     @Nullable
     private static IItemHandler itemHandler(ServerLevel level, BlockPos pos) {
-        if (!level.isLoaded(pos)) {
-            return null;
-        }
-        return level.getCapability(Capabilities.ItemHandler.BLOCK, pos, null);
+        return BlockCapabilities.find(level, pos, ForgeCapabilities.ITEM_HANDLER, null);
     }
 
     static ItemStack extractSlot(IItemHandler handler, int slot) {
@@ -549,34 +546,24 @@ public final class ArsNouveauImbuementChamberAdapter implements MultiblockAdapte
 
     private static boolean outputMatches(IPatternDetails pattern, ItemStack result) {
         var outputs = pattern.getOutputs();
-        if (outputs.size() != 1) {
+        if (outputs.length != 1) {
             return false;
         }
 
-        var expected = outputs.getFirst();
+        var expected = outputs[0];
         if (!(expected.what() instanceof AEItemKey expectedKey) || expected.amount() != result.getCount()) {
             return false;
         }
 
         var actual = AEItemKey.of(result);
-        return outputMode(pattern, 0) == MatchMode.ID_ONLY
+        return OverloadPatternSemantics.isIdOnlyOutput(pattern, 0)
                 ? expectedKey.dropSecondary().equals(actual.dropSecondary())
                 : expectedKey.equals(actual);
     }
 
-    private static MatchMode outputMode(IPatternDetails pattern, int outputIndex) {
-        if (pattern instanceof OverloadedProviderOnlyPatternDetails overload) {
-            var outputs = overload.overloadPatternDetailsView().outputs();
-            if (outputIndex >= 0 && outputIndex < outputs.size()) {
-                return outputs.get(outputIndex).matchMode();
-            }
-        }
-        return MatchMode.STRICT;
-    }
-
     private static boolean hasSingleItemOutput(IPatternDetails pattern) {
         var outputs = pattern.getOutputs();
-        return outputs.size() == 1 && outputs.getFirst().what() instanceof AEItemKey;
+        return outputs.length == 1 && outputs[0].what() instanceof AEItemKey;
     }
 
     private static boolean matchesPlannedStack(GenericStack stack, PlannedUnit unit) {
@@ -592,7 +579,7 @@ public final class ArsNouveauImbuementChamberAdapter implements MultiblockAdapte
         return true;
     }
 
-    private static List<RecipeHolder<?>> recipes(ServerLevel level) {
+    private static List<Recipe<?>> recipes(ServerLevel level) {
         var registryRecipes = ArsReflection.getImbuementRecipes();
         if (!registryRecipes.isEmpty()) {
             return registryRecipes;
@@ -604,8 +591,8 @@ public final class ArsNouveauImbuementChamberAdapter implements MultiblockAdapte
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static List<RecipeHolder<?>> recipesForType(ServerLevel level, RecipeType<?> type) {
-        return (List<RecipeHolder<?>>) (List<?>) level.getRecipeManager().getAllRecipesFor((RecipeType) type);
+    private static List<Recipe<?>> recipesForType(ServerLevel level, RecipeType<?> type) {
+        return (List<Recipe<?>>) (List<?>) level.getRecipeManager().getAllRecipesFor((RecipeType) type);
     }
 
     private static boolean isArsLoaded() {
@@ -622,7 +609,7 @@ public final class ArsNouveauImbuementChamberAdapter implements MultiblockAdapte
     }
 
     private static ResourceLocation arsId(String path) {
-        return ResourceLocation.fromNamespaceAndPath(MOD_ID, path);
+        return new ResourceLocation(MOD_ID, path);
     }
 
     private record PlannedUnit(AEItemKey key) {
@@ -683,7 +670,7 @@ public final class ArsNouveauImbuementChamberAdapter implements MultiblockAdapte
             return arcanePedestalTileClass != null && arcanePedestalTileClass.isInstance(value);
         }
 
-        static List<RecipeHolder<?>> getImbuementRecipes() {
+        static List<Recipe<?>> getImbuementRecipes() {
             if (!isArsLoaded()) {
                 return List.of();
             }
@@ -697,9 +684,9 @@ public final class ArsNouveauImbuementChamberAdapter implements MultiblockAdapte
                 if (!(value instanceof Iterable<?> iterable)) {
                     return List.of();
                 }
-                var recipes = new ArrayList<RecipeHolder<?>>();
+                var recipes = new ArrayList<Recipe<?>>();
                 for (var item : iterable) {
-                    if (item instanceof RecipeHolder<?> holder && holder.value() instanceof Recipe<?>) {
+                    if (item instanceof Recipe<?> holder) {
                         recipes.add(holder);
                     }
                 }

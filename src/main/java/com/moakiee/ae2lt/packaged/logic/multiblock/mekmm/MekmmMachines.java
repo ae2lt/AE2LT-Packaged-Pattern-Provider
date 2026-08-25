@@ -158,6 +158,6 @@ final class MekmmMachines {
     }
 
     private static ResourceLocation id(String path) {
-        return ResourceLocation.fromNamespaceAndPath("mekmm", path);
+        return new ResourceLocation("mekmm", path);
     }
 }

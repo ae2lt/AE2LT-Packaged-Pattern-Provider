@@ -1,0 +1,28 @@
+{
+  "conditions": [
+    {
+      "type": "forge:mod_loaded",
+      "modid": "ars_nouveau"
+    }
+  ],
+  "type": "ars_nouveau:imbuement",
+  "input": {
+    "item": "ae2ltpp:basic_packaged_core"
+  },
+  "pedestalItems": [
+    {
+      "item": "ars_nouveau:source_gem"
+    },
+    {
+      "item": "ars_nouveau:source_gem"
+    },
+    {
+      "item": "ars_nouveau:source_gem"
+    }
+  ],
+  "source": 5000,
+  "output": {
+    "id": "ae2ltpp:ars_imbuement_packaged_core",
+    "count": 1
+  }
+}

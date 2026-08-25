@@ -13,8 +13,10 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DirectionProperty;
-import net.neoforged.fml.ModList;
-import net.neoforged.neoforge.capabilities.BlockCapability;
+import net.minecraftforge.fml.ModList;
+import net.minecraftforge.common.capabilities.Capability;
+
+import com.moakiee.ae2lt.packaged.logic.multiblock.BlockCapabilities;
 
 import com.moakiee.ae2lt.packaged.logic.multiblock.ReflectionSupport;
 
@@ -107,8 +109,8 @@ final class MekReflection {
             return null;
         }
         try {
-            var cap = (BlockCapability<T, Direction>) chemicalBlockCapability;
-            T result = level.getCapability(cap, pos, side);
+            var cap = (Capability<T>) chemicalBlockCapability;
+            T result = BlockCapabilities.find(level, pos, cap, side);
             if (result == null) {
                 LOG.debug("[ae2ltpp] getChemicalHandler: no handler at {} side {}", pos, side);
             }
@@ -239,7 +241,7 @@ final class MekReflection {
             Object chemicalCapability = chemicalField.get(null);
             chemicalBlockCapability = resolveBlockCapability(chemicalCapability);
             if (chemicalBlockCapability == null) {
-                LOG.warn("[ae2ltpp] Resolved Mekanism CHEMICAL field, but it did not expose a BlockCapability: {}",
+                LOG.warn("[ae2ltpp] Resolved Mekanism CHEMICAL field, but it did not expose a Forge Capability: {}",
                         chemicalCapability == null ? "null" : chemicalCapability.getClass().getName());
             } else {
                 LOG.debug("[ae2ltpp] Resolved CHEMICAL block capability: {}", chemicalBlockCapability);
@@ -277,6 +279,6 @@ final class MekReflection {
 
     @Nullable
     private static Object resolveBlockCapability(@Nullable Object capabilityCarrier) {
-        return MekCapabilityReflection.resolveBlock(capabilityCarrier, BlockCapability.class);
+        return MekCapabilityReflection.resolveBlock(capabilityCarrier, Capability.class);
     }
 }

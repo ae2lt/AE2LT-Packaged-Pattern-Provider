@@ -1,0 +1,56 @@
+{
+  "conditions": [
+    {
+      "type": "forge:mod_loaded",
+      "modid": "draconicevolution"
+    }
+  ],
+  "type": "draconicevolution:fusion_crafting",
+  "catalyst": {
+    "item": "ae2ltpp:basic_packaged_core"
+  },
+  "ingredients": [
+    {
+      "consume": true,
+      "ingredient": {
+        "item": "draconicevolution:awakened_core"
+      }
+    },
+    {
+      "consume": true,
+      "ingredient": {
+        "item": "draconicevolution:awakened_core"
+      }
+    },
+    {
+      "consume": true,
+      "ingredient": {
+        "item": "draconicevolution:awakened_draconium_ingot"
+      }
+    },
+    {
+      "consume": true,
+      "ingredient": {
+        "item": "draconicevolution:awakened_draconium_ingot"
+      }
+    },
+    {
+      "consume": true,
+      "ingredient": {
+        "item": "draconicevolution:awakened_draconium_ingot"
+      }
+    },
+    {
+      "consume": true,
+      "ingredient": {
+        "item": "draconicevolution:awakened_draconium_ingot"
+      }
+    }
+  ],
+  "result": {
+    "count": 1,
+    "id": "ae2ltpp:de_fusion_packaged_core"
+  },
+  "techLevel": "draconic",
+  "totalEnergy": 50000000
+}

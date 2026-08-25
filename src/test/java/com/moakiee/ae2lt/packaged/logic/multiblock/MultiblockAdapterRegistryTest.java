@@ -166,8 +166,9 @@ class MultiblockAdapterRegistryTest {
             BooleanSupplier enabled,
             MultiblockAdapter adapter) throws ReflectiveOperationException {
         var resourceLocationClass = Class.forName("net.minecraft.resources.ResourceLocation");
-        var fromNamespaceAndPath = resourceLocationClass.getMethod("fromNamespaceAndPath", String.class, String.class);
-        var id = fromNamespaceAndPath.invoke(null, "ae2ltpp", path);
+        // 1.20.1 exposes only the (namespace, path) constructor.
+        var constructor = resourceLocationClass.getConstructor(String.class, String.class);
+        var id = constructor.newInstance("ae2ltpp", path);
         var of = AdapterRegistration.class.getMethod(
                 "of",
                 resourceLocationClass,

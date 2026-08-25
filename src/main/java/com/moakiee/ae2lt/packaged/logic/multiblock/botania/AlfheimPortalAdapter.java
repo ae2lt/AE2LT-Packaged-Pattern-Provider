@@ -12,7 +12,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.crafting.Ingredient;
-import net.minecraft.world.item.crafting.RecipeHolder;
+import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.level.block.entity.BlockEntity;
 
 import appeng.api.crafting.IPatternDetails;
@@ -125,7 +125,7 @@ public final class AlfheimPortalAdapter implements VirtualCraftingAdapter {
             return null;
         }
 
-        var recipe = bind.holder().value();
+        var recipe = bind.holder();
         var ingredients = recipe.getIngredients();
         if (!consumeIngredientsStrict(ingredients, inputs)) {
             return null;
@@ -216,6 +216,6 @@ public final class AlfheimPortalAdapter implements VirtualCraftingAdapter {
         return true;
     }
 
-    private record PortalBindHandle(RecipeHolder<?> holder) {
+    private record PortalBindHandle(Recipe<?> holder) {
     }
 }

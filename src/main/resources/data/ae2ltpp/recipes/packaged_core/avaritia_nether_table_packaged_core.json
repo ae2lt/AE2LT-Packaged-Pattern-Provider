@@ -1,0 +1,38 @@
+{
+  "conditions": [
+    {
+      "type": "forge:mod_loaded",
+      "modid": "avaritia"
+    }
+  ],
+  "type": "avaritia:shaped_table",
+  "tier": 2,
+  "pattern": [
+    "IPIPI",
+    "PDNDP",
+    "INCNI",
+    "PDNDP",
+    "IPIPI"
+  ],
+  "key": {
+    "I": {
+      "item": "avaritia:neutron_ingot"
+    },
+    "P": {
+      "item": "avaritia:neutron_pile"
+    },
+    "N": {
+      "item": "avaritia:neutron_nugget"
+    },
+    "D": {
+      "item": "minecraft:diamond"
+    },
+    "C": {
+      "item": "ae2ltpp:basic_packaged_core"
+    }
+  },
+  "result": {
+    "count": 1,
+    "id": "ae2ltpp:avaritia_nether_table_packaged_core"
+  }
+}

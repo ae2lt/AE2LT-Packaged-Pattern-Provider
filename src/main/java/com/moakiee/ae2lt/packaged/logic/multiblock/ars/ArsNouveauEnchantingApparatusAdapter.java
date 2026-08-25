@@ -18,14 +18,13 @@ import net.minecraft.world.Container;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Recipe;
-import net.minecraft.world.item.crafting.RecipeHolder;
-import net.minecraft.world.item.crafting.RecipeInput;
+import net.minecraft.world.Container;
 import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
-import net.neoforged.fml.ModList;
+import net.minecraftforge.fml.ModList;
 
 import appeng.api.config.Actionable;
 import appeng.api.crafting.IPatternDetails;
@@ -42,8 +41,7 @@ import com.moakiee.ae2lt.packaged.logic.multiblock.ReflectionSupport;
 import com.moakiee.ae2lt.packaged.logic.multiblock.TargetSlot;
 import com.moakiee.ae2lt.packaged.logic.multiblock.binding.BindingMode;
 import com.moakiee.ae2lt.packaged.logic.multiblock.binding.BindingResult;
-import com.moakiee.thunderbolt.ae2.overload.model.MatchMode;
-import com.moakiee.thunderbolt.ae2.overload.pattern.OverloadedProviderOnlyPatternDetails;
+import com.moakiee.ae2lt.packaged.patternprovider.OverloadPatternSemantics;
 
 /**
  * Runtime adapter for Ars Nouveau's Enchanting Apparatus.
@@ -214,7 +212,7 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
     private ApparatusBindHandle findCandidateRecipes(ServerLevel level, IPatternDetails pattern) {
         var candidates = new ArrayList<RecipeCandidate>();
         for (var holder : recipes(level)) {
-            var recipe = holder.value();
+            var recipe = holder;
             var result = resultItem(recipe, level);
             if (result.isEmpty() || !outputMatches(pattern, result)) {
                 continue;
@@ -384,7 +382,7 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static boolean recipeMatches(Recipe<?> recipe, RecipeInput input, ServerLevel level) {
+    private static boolean recipeMatches(Recipe<?> recipe, Container input, ServerLevel level) {
         try {
             return rawRecipe(recipe).matches(input, level);
         } catch (RuntimeException | LinkageError ignored) {
@@ -412,34 +410,24 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
 
     private static boolean outputMatches(IPatternDetails pattern, ItemStack result) {
         var outputs = pattern.getOutputs();
-        if (outputs.size() != 1) {
+        if (outputs.length != 1) {
             return false;
         }
 
-        var expected = outputs.getFirst();
+        var expected = outputs[0];
         if (!(expected.what() instanceof AEItemKey expectedKey) || expected.amount() != result.getCount()) {
             return false;
         }
 
         var actual = AEItemKey.of(result);
-        return outputMode(pattern, 0) == MatchMode.ID_ONLY
+        return OverloadPatternSemantics.isIdOnlyOutput(pattern, 0)
                 ? expectedKey.dropSecondary().equals(actual.dropSecondary())
                 : expectedKey.equals(actual);
     }
 
-    private static MatchMode outputMode(IPatternDetails pattern, int outputIndex) {
-        if (pattern instanceof OverloadedProviderOnlyPatternDetails overload) {
-            var outputs = overload.overloadPatternDetailsView().outputs();
-            if (outputIndex >= 0 && outputIndex < outputs.size()) {
-                return outputs.get(outputIndex).matchMode();
-            }
-        }
-        return MatchMode.STRICT;
-    }
-
     private static boolean hasSingleItemOutput(IPatternDetails pattern) {
         var outputs = pattern.getOutputs();
-        return outputs.size() == 1 && outputs.getFirst().what() instanceof AEItemKey;
+        return outputs.length == 1 && outputs[0].what() instanceof AEItemKey;
     }
 
     private static boolean matchesPlannedStack(GenericStack stack, PlannedUnit unit) {
@@ -489,13 +477,13 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
         return sourceCost <= 0 || ArsReflection.hasSourceNearby(mainPos, level, SOURCE_RADIUS, sourceCost);
     }
 
-    private static List<RecipeHolder<?>> recipes(ServerLevel level) {
+    private static List<Recipe<?>> recipes(ServerLevel level) {
         var apiRecipes = ArsReflection.getEnchantingApparatusRecipes(level);
         if (!apiRecipes.isEmpty()) {
             return apiRecipes;
         }
 
-        var recipes = new ArrayList<RecipeHolder<?>>();
+        var recipes = new ArrayList<Recipe<?>>();
         for (var id : FALLBACK_RECIPE_TYPES) {
             BuiltInRegistries.RECIPE_TYPE.getOptional(id)
                     .ifPresent(type -> recipes.addAll(recipesForType(level, type)));
@@ -504,8 +492,8 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static List<RecipeHolder<?>> recipesForType(ServerLevel level, RecipeType<?> type) {
-        return (List<RecipeHolder<?>>) (List<?>) level.getRecipeManager().getAllRecipesFor((RecipeType) type);
+    private static List<Recipe<?>> recipesForType(ServerLevel level, RecipeType<?> type) {
+        return (List<Recipe<?>>) (List<?>) level.getRecipeManager().getAllRecipesFor((RecipeType) type);
     }
 
     private static boolean isArsLoaded() {
@@ -522,7 +510,7 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
     }
 
     private static ResourceLocation arsId(String path) {
-        return ResourceLocation.fromNamespaceAndPath(MOD_ID, path);
+        return new ResourceLocation(MOD_ID, path);
     }
 
     private record PlannedUnit(AEItemKey key) {
@@ -567,20 +555,20 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
         private static volatile boolean sourceLookupDone;
 
         @Nullable
-        static RecipeInput createApparatusInput(ItemStack reagent, List<ItemStack> pedestals) {
+        static Container createApparatusInput(ItemStack reagent, List<ItemStack> pedestals) {
             var constructor = apparatusInputConstructor();
             if (constructor == null) {
                 return null;
             }
             try {
                 Object input = constructor.newInstance(reagent.copy(), copyStacks(pedestals), null);
-                return input instanceof RecipeInput recipeInput ? recipeInput : null;
+                return input instanceof Container recipeInput ? recipeInput : null;
             } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
                 return null;
             }
         }
 
-        static List<RecipeHolder<?>> getEnchantingApparatusRecipes(ServerLevel level) {
+        static List<Recipe<?>> getEnchantingApparatusRecipes(ServerLevel level) {
             if (!isArsLoaded()) {
                 return List.of();
             }
@@ -596,9 +584,9 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
                     return List.of();
                 }
 
-                var recipes = new ArrayList<RecipeHolder<?>>();
+                var recipes = new ArrayList<Recipe<?>>();
                 for (var item : iterable) {
-                    if (item instanceof RecipeHolder<?> holder && holder.value() instanceof Recipe<?>) {
+                    if (item instanceof Recipe<?> holder) {
                         recipes.add(holder);
                     }
                 }

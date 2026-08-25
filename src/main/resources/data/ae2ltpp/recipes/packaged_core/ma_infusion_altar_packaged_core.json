@@ -1,0 +1,42 @@
+{
+  "conditions": [
+    {
+      "type": "forge:mod_loaded",
+      "modid": "mysticalagriculture"
+    }
+  ],
+  "type": "mysticalagriculture:infusion",
+  "input": {
+    "item": "ae2ltpp:basic_packaged_core"
+  },
+  "ingredients": [
+    {
+      "item": "mysticalagriculture:supremium_ingot"
+    },
+    {
+      "item": "mysticalagriculture:supremium_ingot"
+    },
+    {
+      "item": "mysticalagriculture:supremium_ingot"
+    },
+    {
+      "item": "mysticalagriculture:supremium_ingot"
+    },
+    {
+      "item": "mysticalagriculture:supremium_gemstone"
+    },
+    {
+      "item": "mysticalagriculture:supremium_gemstone"
+    },
+    {
+      "item": "mysticalagriculture:supremium_gemstone"
+    },
+    {
+      "item": "mysticalagriculture:supremium_gemstone"
+    }
+  ],
+  "result": {
+    "count": 1,
+    "id": "ae2ltpp:ma_infusion_altar_packaged_core"
+  }
+}

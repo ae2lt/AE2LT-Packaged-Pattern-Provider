@@ -6,7 +6,7 @@ import com.mojang.logging.LogUtils;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 
-import net.neoforged.fml.ModList;
+import net.minecraftforge.fml.ModList;
 
 import appeng.api.stacks.AEKey;
 

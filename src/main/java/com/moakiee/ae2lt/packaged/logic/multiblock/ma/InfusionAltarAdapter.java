@@ -15,15 +15,17 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.crafting.CraftingInput;
+import net.minecraft.world.inventory.CraftingContainer;
+import net.minecraft.world.inventory.TransientCraftingContainer;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.crafting.Recipe;
-import net.minecraft.world.item.crafting.RecipeHolder;
 import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
-import net.neoforged.fml.ModList;
-import net.neoforged.neoforge.items.IItemHandler;
-import net.neoforged.neoforge.items.IItemHandlerModifiable;
+import net.minecraftforge.fml.ModList;
+import net.minecraftforge.items.IItemHandler;
+import net.minecraftforge.items.IItemHandlerModifiable;
 
 import appeng.api.config.Actionable;
 import appeng.api.crafting.IPatternDetails;
@@ -39,8 +41,7 @@ import com.moakiee.ae2lt.packaged.logic.multiblock.MultiblockAdapter;
 import com.moakiee.ae2lt.packaged.logic.multiblock.TargetSlot;
 import com.moakiee.ae2lt.packaged.logic.multiblock.binding.BindingMode;
 import com.moakiee.ae2lt.packaged.logic.multiblock.binding.BindingResult;
-import com.moakiee.thunderbolt.ae2.overload.model.MatchMode;
-import com.moakiee.thunderbolt.ae2.overload.pattern.OverloadedProviderOnlyPatternDetails;
+import com.moakiee.ae2lt.packaged.patternprovider.OverloadPatternSemantics;
 
 /**
  * Runtime adapter for Mystical Agriculture's Infusion Altar (seed crafting).
@@ -211,7 +212,7 @@ public final class InfusionAltarAdapter implements MultiblockAdapter {
     @Nullable
     private static Object findCandidateRecipe(ServerLevel level, IPatternDetails pattern) {
         for (var holder : recipes(level)) {
-            var recipe = holder.value();
+            var recipe = holder;
             var result = resultItem(recipe, level);
             if (result == null || result.isEmpty() || !outputMatches(pattern, result)) {
                 continue;
@@ -248,7 +249,7 @@ public final class InfusionAltarAdapter implements MultiblockAdapter {
                 }
             }
 
-            var craftingInput = buildCraftingInput(altarUnit, pedestalUnits);
+            var craftingInput = buildCraftingContainer(altarUnit, pedestalUnits);
             if (recipeMatches(recipe, craftingInput, level)) {
                 return new RecipeMatch(altarUnit, List.copyOf(pedestalUnits));
             }
@@ -256,17 +257,46 @@ public final class InfusionAltarAdapter implements MultiblockAdapter {
         return null;
     }
 
-    private static CraftingInput buildCraftingInput(PlannedUnit altar, List<PlannedUnit> pedestals) {
+    /** Never opened; only satisfies {@link TransientCraftingContainer}'s constructor. */
+    private static final AbstractContainerMenu DUMMY_MENU = new AbstractContainerMenu(null, -1) {
+        @Override
+        public ItemStack quickMoveStack(Player player, int index) {
+            return ItemStack.EMPTY;
+        }
+
+        @Override
+        public boolean stillValid(Player player) {
+            return false;
+        }
+    };
+
+    private static CraftingContainer buildCraftingContainer(PlannedUnit altar, List<PlannedUnit> pedestals) {
         var stacks = NonNullList.withSize(9, ItemStack.EMPTY);
         stacks.set(0, altar.stack());
         for (int i = 0; i < pedestals.size() && i + 1 < 9; i++) {
             stacks.set(i + 1, pedestals.get(i).stack());
         }
-        return CraftingInput.of(3, 3, stacks);
+        return transientCraftingContainer(3, 3, stacks);
+    }
+
+    /**
+     * Builds a detached crafting grid to match recipes against.
+     *
+     * <p>1.21 offers {@code CraftingContainer.of(w, h, stacks)}; on 1.20.1 the
+     * equivalent is a {@link TransientCraftingContainer} bound to a dummy menu,
+     * which is what vanilla itself uses for off-screen recipe lookups.
+     */
+    private static CraftingContainer transientCraftingContainer(
+            int width, int height, NonNullList<ItemStack> stacks) {
+        var container = new TransientCraftingContainer(DUMMY_MENU, width, height);
+        for (int slot = 0; slot < stacks.size() && slot < container.getContainerSize(); slot++) {
+            container.setItem(slot, stacks.get(slot));
+        }
+        return container;
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static boolean recipeMatches(Object recipe, CraftingInput input, ServerLevel level) {
+    private static boolean recipeMatches(Object recipe, CraftingContainer input, ServerLevel level) {
         try {
             return recipe instanceof Recipe<?> r && ((Recipe) r).matches(input, level);
         } catch (RuntimeException | LinkageError ignored) {
@@ -387,32 +417,22 @@ public final class InfusionAltarAdapter implements MultiblockAdapter {
 
     private static boolean hasSingleItemOutput(IPatternDetails pattern) {
         var outputs = pattern.getOutputs();
-        return outputs.size() == 1 && outputs.getFirst().what() instanceof AEItemKey;
+        return outputs.length == 1 && outputs[0].what() instanceof AEItemKey;
     }
 
     private static boolean outputMatches(IPatternDetails pattern, ItemStack result) {
         var outputs = pattern.getOutputs();
-        if (outputs.size() != 1) {
+        if (outputs.length != 1) {
             return false;
         }
-        var expected = outputs.getFirst();
+        var expected = outputs[0];
         if (!(expected.what() instanceof AEItemKey expectedKey) || expected.amount() != result.getCount()) {
             return false;
         }
         var actual = AEItemKey.of(result);
-        return outputMode(pattern, 0) == MatchMode.ID_ONLY
+        return OverloadPatternSemantics.isIdOnlyOutput(pattern, 0)
                 ? expectedKey.dropSecondary().equals(actual.dropSecondary())
                 : expectedKey.equals(actual);
-    }
-
-    private static MatchMode outputMode(IPatternDetails pattern, int outputIndex) {
-        if (pattern instanceof OverloadedProviderOnlyPatternDetails overload) {
-            var outputs = overload.overloadPatternDetailsView().outputs();
-            if (outputIndex >= 0 && outputIndex < outputs.size()) {
-                return outputs.get(outputIndex).matchMode();
-            }
-        }
-        return MatchMode.STRICT;
     }
 
     private static boolean matchesPlannedStack(GenericStack stack, PlannedUnit unit) {
@@ -420,9 +440,9 @@ public final class InfusionAltarAdapter implements MultiblockAdapter {
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static List<RecipeHolder<?>> recipes(ServerLevel level) {
+    private static List<Recipe<?>> recipes(ServerLevel level) {
         return BuiltInRegistries.RECIPE_TYPE.getOptional(RECIPE_TYPE_ID)
-                .map(type -> (List<RecipeHolder<?>>) (List<?>) level.getRecipeManager()
+                .map(type -> (List<Recipe<?>>) (List<?>) level.getRecipeManager()
                         .getAllRecipesFor((RecipeType) type))
                 .orElse(List.of());
     }
@@ -436,7 +456,7 @@ public final class InfusionAltarAdapter implements MultiblockAdapter {
     }
 
     private static ResourceLocation maId(String path) {
-        return ResourceLocation.fromNamespaceAndPath(MOD_ID, path);
+        return new ResourceLocation(MOD_ID, path);
     }
 
     private record PlannedUnit(AEItemKey key) {

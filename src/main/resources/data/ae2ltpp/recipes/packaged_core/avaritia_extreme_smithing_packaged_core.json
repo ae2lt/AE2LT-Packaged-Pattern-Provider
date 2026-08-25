@@ -1,0 +1,30 @@
+{
+  "conditions": [
+    {
+      "type": "forge:mod_loaded",
+      "modid": "avaritia"
+    }
+  ],
+  "type": "avaritia:extreme_smithing",
+  "template": {
+    "item": "avaritia:upgrade_smithing_template"
+  },
+  "base": {
+    "item": "ae2ltpp:basic_packaged_core"
+  },
+  "addition": [
+    {
+      "item": "avaritia:neutron_ingot"
+    },
+    {
+      "item": "avaritia:crystal_matrix_ingot"
+    },
+    {
+      "item": "avaritia:neutron_gear"
+    }
+  ],
+  "result": {
+    "count": 1,
+    "id": "ae2ltpp:avaritia_extreme_smithing_packaged_core"
+  }
+}

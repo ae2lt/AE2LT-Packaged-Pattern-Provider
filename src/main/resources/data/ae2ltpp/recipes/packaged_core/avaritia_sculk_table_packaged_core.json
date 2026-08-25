@@ -1,0 +1,30 @@
+{
+  "conditions": [
+    {
+      "type": "forge:mod_loaded",
+      "modid": "avaritia"
+    }
+  ],
+  "type": "avaritia:shaped_table",
+  "tier": 1,
+  "pattern": [
+    "NPN",
+    "PCP",
+    "NPN"
+  ],
+  "key": {
+    "N": {
+      "item": "avaritia:neutron_nugget"
+    },
+    "P": {
+      "item": "avaritia:neutron_pile"
+    },
+    "C": {
+      "item": "ae2ltpp:basic_packaged_core"
+    }
+  },
+  "result": {
+    "count": 1,
+    "id": "ae2ltpp:avaritia_sculk_table_packaged_core"
+  }
+}

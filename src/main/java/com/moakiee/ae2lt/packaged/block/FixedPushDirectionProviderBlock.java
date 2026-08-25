@@ -4,7 +4,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
-import net.minecraft.world.ItemInteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
@@ -12,6 +11,8 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.phys.BlockHitResult;
+
+import org.jetbrains.annotations.Nullable;
 
 import appeng.block.AEBaseEntityBlock;
 import appeng.block.crafting.PatternProviderBlock;
@@ -52,29 +53,28 @@ class FixedPushDirectionProviderBlock<T extends StablePatternProviderBlockEntity
         }
     }
 
+    /**
+     * 1.20.1 routes every block interaction through AE2's single
+     * {@code onActivated} hook, so wrench rotation and menu opening share one
+     * override here. Mirrors {@link PatternProviderBlock#onActivated}.
+     */
     @Override
-    protected ItemInteractionResult useItemOn(
-            ItemStack heldItem,
-            BlockState state,
+    public InteractionResult onActivated(
             Level level,
             BlockPos pos,
             Player player,
             InteractionHand hand,
+            @Nullable ItemStack heldItem,
             BlockHitResult hit) {
-        if (InteractionUtil.canWrenchRotate(heldItem)) {
-            setSide(level, pos, hit.getDirection());
-            return ItemInteractionResult.sidedSuccess(level.isClientSide());
+        if (InteractionUtil.isInAlternateUseMode(player)) {
+            return InteractionResult.PASS;
         }
-        return super.useItemOn(heldItem, state, level, pos, player, hand, hit);
-    }
 
-    @Override
-    protected InteractionResult useWithoutItem(
-            BlockState state,
-            Level level,
-            BlockPos pos,
-            Player player,
-            BlockHitResult hitResult) {
+        if (heldItem != null && InteractionUtil.canWrenchRotate(heldItem)) {
+            setSide(level, pos, hit.getDirection());
+            return InteractionResult.sidedSuccess(level.isClientSide());
+        }
+
         var blockEntity = getBlockEntity(level, pos);
         if (blockEntity == null) {
             return InteractionResult.PASS;
