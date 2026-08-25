@@ -13,12 +13,11 @@ import org.slf4j.Logger;
 import net.minecraft.world.Container;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Recipe;
-import net.minecraft.world.item.crafting.RecipeHolder;
-import net.minecraft.world.item.crafting.RecipeInput;
+import net.minecraft.world.Container;
 import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
-import net.neoforged.fml.ModList;
+import net.minecraftforge.fml.ModList;
 
 import com.moakiee.ae2lt.packaged.logic.multiblock.ReflectionSupport;
 
@@ -100,7 +99,7 @@ public final class BotaniaReflection {
     @Nullable private static Class<?> runicAltarRecipeClass;
     @Nullable private static Class<?> terraPlateRecipeClass;
 
-    @Nullable private static Class<?> processingRecipeInputClass;
+    @Nullable private static Class<?> processingContainerClass;
     @Nullable private static Class<?> stateIngredientClass;
     @Nullable private static Class<?> recipeWithReagentClass;
     @Nullable private static Class<?> recipeWithCatalystsClass;
@@ -114,7 +113,7 @@ public final class BotaniaReflection {
     @Nullable private static Method apothecaryGetFluid;
     @Nullable private static Method apothecarySetFluid;
     @Nullable private static Method simpleBeGetItemHandler;  // SimpleInventoryBlockEntity
-    @Nullable private static Method simpleBeGetRecipeInput;  // SimpleInventoryBlockEntity
+    @Nullable private static Method simpleBeGetContainer;  // SimpleInventoryBlockEntity
     @Nullable private static Method stateIngredientTest;     // StateIngredient.test(BlockState)
     @Nullable private static Method reagentGetReagent;       // RecipeWithReagent.getReagent()
     @Nullable private static Method catalystsGetCatalysts;   // RecipeWithCatalysts.getCatalysts()
@@ -191,7 +190,7 @@ public final class BotaniaReflection {
             runicAltarRecipeClass = Class.forName(CLS_RUNIC_ALTAR_RECIPE);
             terraPlateRecipeClass = Class.forName(CLS_TERRA_PLATE_RECIPE);
 
-            processingRecipeInputClass = Class.forName(CLS_PROCESSING_RECIPE_INPUT);
+            processingContainerClass = Class.forName(CLS_PROCESSING_RECIPE_INPUT);
             stateIngredientClass = Class.forName(CLS_STATE_INGREDIENT);
             recipeWithReagentClass = Class.forName(CLS_RECIPE_WITH_REAGENT);
             recipeWithCatalystsClass = Class.forName(CLS_RECIPE_WITH_CATALYSTS);
@@ -208,7 +207,7 @@ public final class BotaniaReflection {
             apothecarySetFluid = petalApothecaryIfaceClass.getMethod("setFluid", petalApothecaryStateClass);
 
             simpleBeGetItemHandler = simpleInventoryBeClass.getMethod("getItemHandler");
-            simpleBeGetRecipeInput = simpleInventoryBeClass.getMethod("getRecipeInput");
+            simpleBeGetContainer = simpleInventoryBeClass.getMethod("getRecipeInput");
 
             stateIngredientTest = stateIngredientClass.getMethod("test", BlockState.class);
             reagentGetReagent = recipeWithReagentClass.getMethod("getReagent");
@@ -330,15 +329,15 @@ public final class BotaniaReflection {
 
     /**
      * Mirror of {@code ManaPoolBlockEntity#getMatchingRecipe(ItemStack, BlockState)}.
-     * Returns the {@code RecipeHolder<ManaInfusionRecipe>} whose ingredient
+     * Returns the {@code ManaInfusionRecipe} whose ingredient
      * accepts the given item and whose catalyst matches the block under the
      * pool, or {@code null} when no recipe matches.
      */
     @Nullable
-    public static RecipeHolder<?> manaPoolMatchingRecipe(BlockEntity be, ItemStack stack, BlockState below) {
+    public static Recipe<?> manaPoolMatchingRecipe(BlockEntity be, ItemStack stack, BlockState below) {
         try {
             var result = poolGetMatchingRecipe.invoke(be, stack, below);
-            return result instanceof RecipeHolder<?> holder ? holder : null;
+            return result instanceof Recipe<?> holder ? holder : null;
         } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
             return null;
         }
@@ -395,10 +394,10 @@ public final class BotaniaReflection {
     // ===== Runic Altar =====
 
     @Nullable
-    public static RecipeHolder<?> altarCurrentRecipe(BlockEntity be) {
+    public static Recipe<?> altarCurrentRecipe(BlockEntity be) {
         try {
             var v = altarCurrentRecipe.get(be);
-            return v instanceof RecipeHolder<?> holder ? holder : null;
+            return v instanceof Recipe<?> holder ? holder : null;
         } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
             return null;
         }
@@ -463,36 +462,36 @@ public final class BotaniaReflection {
     }
 
     /**
-     * Returns the live {@link RecipeInput} backing the BE's inventory.
-     * Cast freely to {@link Recipe#matches(RecipeInput, net.minecraft.world.level.Level) Recipe.matches}'s
+     * Returns the live {@link Container} backing the BE's inventory.
+     * Cast freely to {@link Recipe#matches(Container, net.minecraft.world.level.Level) Recipe.matches}'s
      * concrete input type at the call site.
      */
     @Nullable
-    public static RecipeInput simpleInventoryRecipeInput(BlockEntity be) {
+    public static Container simpleInventoryRecipeContainer(BlockEntity be) {
         try {
-            var v = simpleBeGetRecipeInput.invoke(be);
-            return v instanceof RecipeInput input ? input : null;
+            var v = simpleBeGetContainer.invoke(be);
+            return v instanceof Container input ? input : null;
         } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
             return null;
         }
     }
 
     /**
-     * Constructs a Botania {@code ProcessingRecipeInput} backed by the
+     * Constructs a Botania {@code ProcessingContainer} backed by the
      * given stack array. Returned object passes
-     * {@code Recipe.matches(ProcessingRecipeInput, Level)} for all
+     * {@code Recipe.matches(ProcessingContainer, Level)} for all
      * Botania recipe types whose input type parameter is
-     * {@code ProcessingRecipeInput} (elven trade, runic altar, terra
+     * {@code ProcessingContainer} (elven trade, runic altar, terra
      * plate, petal apothecary). Returns {@code null} when the reflection
      * handle wasn't resolved.
      */
     @Nullable
-    public static RecipeInput createProcessingInput(ItemStack[] stacks) {
+    public static Container createProcessingInput(ItemStack[] stacks) {
         if (stacksProcessingInputCtor == null) {
             return null;
         }
         try {
-            return (RecipeInput) stacksProcessingInputCtor.newInstance((Object) stacks);
+            return (Container) stacksProcessingInputCtor.newInstance((Object) stacks);
         } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
             return null;
         }
@@ -631,7 +630,7 @@ public final class BotaniaReflection {
      * back to "no catalysts to reclaim" without crashing.
      */
     public static java.util.List<net.minecraft.world.item.ItemStack>
-            recipeRemainingItems(Object recipe, net.minecraft.world.item.crafting.RecipeInput input) {
+            recipeRemainingItems(Object recipe, net.minecraft.world.Container input) {
         try {
             var m = ReflectionSupport.findMethodCached(recipe.getClass(), "getRemainingItems", input.getClass())
                     .orElse(null);
@@ -650,11 +649,11 @@ public final class BotaniaReflection {
             }
             return java.util.List.of();
         } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
-            // Try the more generic RecipeInput overload (matches the bridge
+            // Try the more generic Container overload (matches the bridge
             // method generated by the parameterised Recipe interface).
             try {
                 var m = ReflectionSupport.findMethodCached(recipe.getClass(), "getRemainingItems",
-                        net.minecraft.world.item.crafting.RecipeInput.class).orElse(null);
+                        net.minecraft.world.Container.class).orElse(null);
                 if (m == null) {
                     return java.util.List.of();
                 }

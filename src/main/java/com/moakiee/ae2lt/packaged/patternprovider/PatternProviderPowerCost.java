@@ -30,7 +30,17 @@ public final class PatternProviderPowerCost {
         if (key == null || amount <= 0) {
             return 0.0;
         }
-        return Math.ceilDiv(amount, amountPerOperation(key)) * AE_PER_OPERATION;
+        return ceilDiv(amount, amountPerOperation(key)) * AE_PER_OPERATION;
+    }
+
+    /**
+     * Ceiling division for non-negative dividends and positive divisors.
+     *
+     * <p>{@code Math.ceilDiv} is Java 18+, and this branch compiles at Java 17
+     * to match Forge 1.20.1.
+     */
+    private static long ceilDiv(long dividend, long divisor) {
+        return (dividend + divisor - 1) / divisor;
     }
 
     public static double totalCost(KeyCounter[] inputs) {

@@ -14,7 +14,7 @@ import net.minecraft.world.Container;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Ingredient;
-import net.minecraft.world.item.crafting.RecipeHolder;
+import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.gameevent.GameEvent;
 
@@ -174,7 +174,7 @@ public final class RunicAltarAdapter implements MultiblockAdapter {
         // reagent) must be coverable by the pattern's inputs; otherwise
         // refuse to bind so the CPU never schedules a craft that plan
         // can't satisfy.
-        if (!patternInputsCoverRecipe(pattern, holder.value())) {
+        if (!patternInputsCoverRecipe(pattern, holder)) {
             return null;
         }
         return new BindingResult(new RunicBindHandle(holder), BindingMode.REAL);
@@ -283,7 +283,7 @@ public final class RunicAltarAdapter implements MultiblockAdapter {
             return null;
         }
 
-        var recipe = bind.holder().value();
+        var recipe = bind.holder();
         // Build the assignment in two parts:
         //   inventorySlotItems = ingredients ++ catalysts
         //     - go into the altar inventory slots (matches() requires
@@ -408,7 +408,7 @@ public final class RunicAltarAdapter implements MultiblockAdapter {
 
         ItemStack result;
         try {
-            result = currentRecipe.value().getResultItem(level.registryAccess());
+            result = currentRecipe.getResultItem(level.registryAccess());
         } catch (RuntimeException | LinkageError ignored) {
             return List.of();
         }
@@ -432,7 +432,7 @@ public final class RunicAltarAdapter implements MultiblockAdapter {
         // input but copies each catalyst stack it returns, so doing
         // this before clearContent() is the safe order even though the
         // returned stacks themselves don't alias the inventory.
-        var catalystStacks = collectCatalystStacks(currentRecipe.value(), be);
+        var catalystStacks = collectCatalystStacks(currentRecipe, be);
 
         // Virtual extract: clear inventory + reset state instead of
         // waiting for the player to right-click. The altar's animation
@@ -495,7 +495,7 @@ public final class RunicAltarAdapter implements MultiblockAdapter {
      */
     private static List<ItemStack> collectCatalystStacks(
             net.minecraft.world.item.crafting.Recipe<?> recipe, BlockEntity be) {
-        var input = BotaniaReflection.simpleInventoryRecipeInput(be);
+        var input = BotaniaReflection.simpleInventoryRecipeContainer(be);
         if (input == null) {
             return List.of();
         }
@@ -620,6 +620,6 @@ public final class RunicAltarAdapter implements MultiblockAdapter {
         return true;
     }
 
-    private record RunicBindHandle(RecipeHolder<?> holder) {
+    private record RunicBindHandle(Recipe<?> holder) {
     }
 }

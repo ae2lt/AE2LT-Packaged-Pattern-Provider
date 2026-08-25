@@ -9,12 +9,12 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.crafting.RecipeHolder;
+import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.item.crafting.RecipeType;
-import net.minecraft.world.item.crafting.SingleRecipeInput;
+import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
-import net.neoforged.fml.ModList;
+import net.minecraftforge.fml.ModList;
 
 import appeng.api.crafting.IPatternDetails;
 import appeng.api.networking.security.IActionSource;
@@ -35,7 +35,7 @@ import com.moakiee.ae2lt.packaged.logic.multiblock.binding.BindingResult;
  *
  * <p>Spirit Fire is the "throw item into colored fire to convert it" mechanic
  * (block: {@code occultism:spirit_fire}, recipe class: {@code SpiritFireRecipe}
- * &mdash; a vanilla {@code Recipe<SingleRecipeInput>}). Players normally drop
+ * &mdash; a vanilla {@code Recipe<SimpleContainer>}). Players normally drop
  * an item into the fire and wait ~40 ticks for the conversion to fire-trigger.
  *
  * <p>Spirit Fire has **no fuel/energy/cooldown** — the wait is purely visual.
@@ -133,8 +133,7 @@ public final class OccultismSpiritFireAdapter implements VirtualCraftingAdapter 
         if (!blockId(state).equals(SPIRIT_FIRE_BLOCK)) {
             return null;
         }
-        if (!(bind.recipe() instanceof RecipeHolder<?> holder)
-                || !(holder.value() instanceof net.minecraft.world.item.crafting.Recipe<?> recipe)) {
+        if (!(bind.recipe() instanceof Recipe<?> recipe)) {
             return null;
         }
 
@@ -143,11 +142,11 @@ public final class OccultismSpiritFireAdapter implements VirtualCraftingAdapter 
             return null;
         }
 
-        // Build a SingleRecipeInput (the recipe class expects this exact type).
+        // Build a SimpleContainer (the recipe class expects this exact type).
         var inputStack = input.key().toStack(1);
-        SingleRecipeInput recipeInput;
+        SimpleContainer recipeInput;
         try {
-            recipeInput = new SingleRecipeInput(inputStack);
+            recipeInput = new SimpleContainer(inputStack);
         } catch (RuntimeException | LinkageError ignored) {
             return null;
         }
@@ -215,9 +214,9 @@ public final class OccultismSpiritFireAdapter implements VirtualCraftingAdapter 
      * plan time once we know the runtime input ratio.
      */
     @Nullable
-    private static RecipeHolder<?> findCandidateRecipe(ServerLevel level, IPatternDetails pattern) {
+    private static Recipe<?> findCandidateRecipe(ServerLevel level, IPatternDetails pattern) {
         for (var holder : recipes(level)) {
-            var recipe = holder.value();
+            var recipe = holder;
             ItemStack result;
             try {
                 result = recipe.getResultItem(level.registryAccess());
@@ -234,7 +233,7 @@ public final class OccultismSpiritFireAdapter implements VirtualCraftingAdapter 
 
     @SuppressWarnings({"rawtypes", "unchecked"})
     private static boolean matchesSafe(net.minecraft.world.item.crafting.Recipe<?> recipe,
-                                       SingleRecipeInput input, ServerLevel level) {
+                                       SimpleContainer input, ServerLevel level) {
         try {
             return ((net.minecraft.world.item.crafting.Recipe) recipe).matches(input, level);
         } catch (RuntimeException | LinkageError ignored) {
@@ -245,7 +244,7 @@ public final class OccultismSpiritFireAdapter implements VirtualCraftingAdapter 
     @Nullable
     @SuppressWarnings({"rawtypes", "unchecked"})
     private static ItemStack assembleSafe(net.minecraft.world.item.crafting.Recipe<?> recipe,
-                                          SingleRecipeInput input, ServerLevel level) {
+                                          SimpleContainer input, ServerLevel level) {
         try {
             return ((net.minecraft.world.item.crafting.Recipe) recipe)
                     .assemble(input, level.registryAccess())
@@ -256,9 +255,9 @@ public final class OccultismSpiritFireAdapter implements VirtualCraftingAdapter 
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static List<RecipeHolder<?>> recipes(ServerLevel level) {
+    private static List<Recipe<?>> recipes(ServerLevel level) {
         return BuiltInRegistries.RECIPE_TYPE.getOptional(SPIRIT_FIRE_RECIPE_TYPE)
-                .map(type -> (List<RecipeHolder<?>>) (List<?>) level.getRecipeManager()
+                .map(type -> (List<Recipe<?>>) (List<?>) level.getRecipeManager()
                         .getAllRecipesFor((RecipeType) type))
                 .orElse(List.of());
     }
@@ -291,7 +290,7 @@ public final class OccultismSpiritFireAdapter implements VirtualCraftingAdapter 
 
     private static boolean hasSingleItemOutput(IPatternDetails pattern) {
         var outputs = pattern.getOutputs();
-        return outputs.size() == 1 && outputs.getFirst().what() instanceof AEItemKey;
+        return outputs.length == 1 && outputs[0].what() instanceof AEItemKey;
     }
 
     /**
@@ -302,10 +301,10 @@ public final class OccultismSpiritFireAdapter implements VirtualCraftingAdapter 
      */
     private static boolean outputKeyMatchesByItem(IPatternDetails pattern, ItemStack result) {
         var outputs = pattern.getOutputs();
-        if (outputs.size() != 1) {
+        if (outputs.length != 1) {
             return false;
         }
-        var expected = outputs.getFirst();
+        var expected = outputs[0];
         if (!(expected.what() instanceof AEItemKey expectedKey)) {
             return false;
         }
@@ -326,10 +325,10 @@ public final class OccultismSpiritFireAdapter implements VirtualCraftingAdapter 
     private static boolean outputKeyMatchesBatch(IPatternDetails pattern, ItemStack result,
                                                   long expectedTotalCount) {
         var outputs = pattern.getOutputs();
-        if (outputs.size() != 1) {
+        if (outputs.length != 1) {
             return false;
         }
-        var expected = outputs.getFirst();
+        var expected = outputs[0];
         if (!(expected.what() instanceof AEItemKey expectedKey)) {
             return false;
         }
@@ -365,7 +364,7 @@ public final class OccultismSpiritFireAdapter implements VirtualCraftingAdapter 
     }
 
     private static ResourceLocation occultismId(String path) {
-        return ResourceLocation.fromNamespaceAndPath(MOD_ID, path);
+        return new ResourceLocation(MOD_ID, path);
     }
 
     /** Opaque binding handle returned from {@link #bind}; carries the matched recipe. */

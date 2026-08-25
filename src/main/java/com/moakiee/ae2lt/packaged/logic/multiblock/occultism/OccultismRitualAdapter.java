@@ -17,14 +17,14 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.SpawnEggItem;
 import net.minecraft.world.item.crafting.Ingredient;
-import net.minecraft.world.item.crafting.RecipeHolder;
+import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
-import net.neoforged.fml.ModList;
-import net.neoforged.neoforge.items.IItemHandler;
+import net.minecraftforge.fml.ModList;
+import net.minecraftforge.items.IItemHandler;
 
 import appeng.api.config.Actionable;
 import appeng.api.crafting.IPatternDetails;
@@ -281,7 +281,7 @@ public final class OccultismRitualAdapter implements MultiblockAdapter {
         int mismatchLogged = 0;
         for (var holder : recipes(level)) {
             scanned++;
-            var recipe = holder.value();
+            var recipe = holder;
             if (!OccultismReflection.hasValidPentacle(recipe, level, mainPos)) {
                 pentacleFail++;
                 continue;
@@ -296,7 +296,7 @@ public final class OccultismRitualAdapter implements MultiblockAdapter {
                 inputMismatch++;
                 if (mismatchLogged < 5) {
                     LOG.debug("findCandidate: recipe {} mismatch (activation={}, ingredients={}, requiresSacrifice={}, requiresItemUse={}, itemToUse={})",
-                            holder.id(),
+                            holder.getId(),
                             ingredientFirstItems(activation),
                             ingredientListItems(ingredients),
                             OccultismReflection.requiresSacrifice(recipe),
@@ -307,7 +307,7 @@ public final class OccultismRitualAdapter implements MultiblockAdapter {
                 continue;
             }
             LOG.debug("findCandidate: matched recipe {} at {} ({} pattern units)",
-                    holder.id(), mainPos, patternUnits.size());
+                    holder.getId(), mainPos, patternUnits.size());
             return new OccultismBindHandle(recipe);
         }
         LOG.debug("findCandidate: no match at {} (scanned={}, pentacleFail={}, missingApi={}, inputMismatch={}, patternUnits={})",
@@ -616,15 +616,15 @@ public final class OccultismRitualAdapter implements MultiblockAdapter {
         return stack.getItem() instanceof SpawnEggItem;
     }
 
-    private static List<RecipeHolder<?>> recipes(ServerLevel level) {
+    private static List<Recipe<?>> recipes(ServerLevel level) {
         return BuiltInRegistries.RECIPE_TYPE.getOptional(RITUAL_RECIPE_TYPE)
                 .map(type -> recipesForType(level, type))
                 .orElse(List.of());
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static List<RecipeHolder<?>> recipesForType(ServerLevel level, RecipeType<?> type) {
-        return (List<RecipeHolder<?>>) (List<?>) level.getRecipeManager()
+    private static List<Recipe<?>> recipesForType(ServerLevel level, RecipeType<?> type) {
+        return (List<Recipe<?>>) (List<?>) level.getRecipeManager()
                 .getAllRecipesFor((RecipeType) type);
     }
 
@@ -633,7 +633,7 @@ public final class OccultismRitualAdapter implements MultiblockAdapter {
     }
 
     private static ResourceLocation occultismId(String path) {
-        return ResourceLocation.fromNamespaceAndPath(MOD_ID, path);
+        return new ResourceLocation(MOD_ID, path);
     }
 
     private record PlannedUnit(AEItemKey key) {

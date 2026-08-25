@@ -14,7 +14,7 @@ import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Ingredient;
-import net.minecraft.world.item.crafting.RecipeHolder;
+import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -114,7 +114,7 @@ public final class TerraPlateAdapter implements MultiblockAdapter {
         }
         // Enforce K=1 at bind time: pattern.amount must equal the recipe's
         // own result count (one terra plate cycle = one craft).
-        var result = holder.value().getResultItem(level.registryAccess());
+        var result = holder.getResultItem(level.registryAccess());
         if (result == null || result.isEmpty()) {
             return null;
         }
@@ -166,7 +166,7 @@ public final class TerraPlateAdapter implements MultiblockAdapter {
             return null;
         }
 
-        var recipe = bind.holder().value();
+        var recipe = bind.holder();
         var ingredients = recipe.getIngredients();
         var assignment = pickKeyCounterStacks(ingredients, inputs);
         if (assignment == null || assignment.isEmpty()) {
@@ -318,6 +318,6 @@ public final class TerraPlateAdapter implements MultiblockAdapter {
         return stacks;
     }
 
-    private record TerraBindHandle(RecipeHolder<?> holder) {
+    private record TerraBindHandle(Recipe<?> holder) {
     }
 }

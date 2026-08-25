@@ -9,9 +9,8 @@ import org.jetbrains.annotations.Nullable;
 
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Ingredient;
-import net.neoforged.neoforge.common.crafting.SizedIngredient;
-import net.neoforged.neoforge.items.IItemHandler;
-import net.neoforged.neoforge.items.IItemHandlerModifiable;
+import net.minecraftforge.items.IItemHandler;
+import net.minecraftforge.items.IItemHandlerModifiable;
 
 import appeng.api.crafting.IPatternDetails;
 import appeng.api.stacks.AEItemKey;
@@ -55,7 +54,7 @@ final class MalumAdapterSupport {
         return List.copyOf(aggregated);
     }
 
-    static MalumRecipeInputMatcher.Requirement<AEItemKey> requirement(SizedIngredient ingredient) {
+    static MalumRecipeInputMatcher.Requirement<AEItemKey> requirement(SizedIngredientView ingredient) {
         return requirement(ingredient.ingredient(), ingredient.count());
     }
 
@@ -82,11 +81,11 @@ final class MalumAdapterSupport {
 
     static boolean outputMatches(IPatternDetails pattern, ItemStack result) {
         var outputs = pattern.getOutputs();
-        if (outputs.size() != 1) {
+        if (outputs.length != 1) {
             return false;
         }
 
-        var expected = outputs.getFirst();
+        var expected = outputs[0];
         if (!(expected.what() instanceof AEItemKey expectedKey)
                 || expected.amount() != result.getCount()) {
             return false;

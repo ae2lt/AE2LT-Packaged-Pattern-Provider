@@ -4,7 +4,7 @@ import java.util.List;
 import java.util.function.Predicate;
 
 import net.minecraft.resources.ResourceLocation;
-import net.neoforged.neoforge.registries.DeferredItem;
+import net.minecraftforge.registries.RegistryObject;
 
 import com.moakiee.ae2lt.packaged.registry.PPItems;
 
@@ -69,7 +69,7 @@ public record PackagedCoreDefinition(
                 .toList();
     }
 
-    public DeferredItem<MultiblockAdapterItem> runtimeItem() {
+    public RegistryObject<MultiblockAdapterItem> runtimeItem() {
         return switch (itemId) {
             case "aa_reconstructor_packaged_core" -> PPItems.AA_RECONSTRUCTOR_ADAPTER;
             case "aa_empowerer_packaged_core" -> PPItems.AA_EMPOWERER_ADAPTER;
@@ -111,6 +111,6 @@ public record PackagedCoreDefinition(
         return new PackagedCoreDefinition(
                 itemId,
                 targetModId,
-                ResourceLocation.fromNamespaceAndPath(targetModId, targetItemPath));
+                new ResourceLocation(targetModId, targetItemPath));
     }
 }

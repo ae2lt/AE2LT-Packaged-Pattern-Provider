@@ -2,8 +2,10 @@
   "required": true,
   "minVersion": "0.8.5",
   "package": "com.moakiee.ae2lt.packaged.mixin",
-  "compatibilityLevel": "JAVA_21",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "ae2ltpp.refmap.json",
   "mixins": [
+    "MenuTypeBuilderAccessor",
     "PatternProviderLogicAccessor",
     "PatternProviderLogicMixin"
   ],

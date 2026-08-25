@@ -14,11 +14,10 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
-import net.minecraft.world.item.crafting.RecipeHolder;
 import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
-import net.neoforged.fml.ModList;
+import net.minecraftforge.fml.ModList;
 
 import appeng.api.crafting.IPatternDetails;
 import appeng.api.networking.security.IActionSource;
@@ -235,7 +234,7 @@ public final class ActuallyAdditionsAtomicReconstructorAdapter implements Virtua
     @Nullable
     private static ReconstructorBindHandle findCandidateRecipe(ServerLevel level, IPatternDetails pattern) {
         for (var holder : recipes(level)) {
-            var recipe = holder.value();
+            var recipe = holder;
             int energy = AaReconstructorReflection.getRecipeEnergy(recipe);
             if (energy <= 0) {
                 continue;
@@ -254,10 +253,10 @@ public final class ActuallyAdditionsAtomicReconstructorAdapter implements Virtua
 
     private static boolean outputKeyMatchesByItem(IPatternDetails pattern, ItemStack result) {
         var outputs = pattern.getOutputs();
-        if (outputs.size() != 1) {
+        if (outputs.length != 1) {
             return false;
         }
-        var expected = outputs.getFirst();
+        var expected = outputs[0];
         if (!(expected.what() instanceof AEItemKey expectedKey)) {
             return false;
         }
@@ -270,10 +269,10 @@ public final class ActuallyAdditionsAtomicReconstructorAdapter implements Virtua
     private static boolean outputKeyMatchesBatch(IPatternDetails pattern, ItemStack result,
                                                   long expectedTotalCount) {
         var outputs = pattern.getOutputs();
-        if (outputs.size() != 1) {
+        if (outputs.length != 1) {
             return false;
         }
-        var expected = outputs.getFirst();
+        var expected = outputs[0];
         if (!(expected.what() instanceof AEItemKey expectedKey)) {
             return false;
         }
@@ -296,7 +295,7 @@ public final class ActuallyAdditionsAtomicReconstructorAdapter implements Virtua
 
     private static boolean hasSingleItemOutput(IPatternDetails pattern) {
         var outputs = pattern.getOutputs();
-        return outputs.size() == 1 && outputs.getFirst().what() instanceof AEItemKey;
+        return outputs.length == 1 && outputs[0].what() instanceof AEItemKey;
     }
 
     @Nullable
@@ -340,9 +339,9 @@ public final class ActuallyAdditionsAtomicReconstructorAdapter implements Virtua
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static List<RecipeHolder<?>> recipes(ServerLevel level) {
+    private static List<Recipe<?>> recipes(ServerLevel level) {
         return BuiltInRegistries.RECIPE_TYPE.getOptional(LASER_RECIPE_TYPE)
-                .map(type -> (List<RecipeHolder<?>>) (List<?>) level.getRecipeManager()
+                .map(type -> (List<Recipe<?>>) (List<?>) level.getRecipeManager()
                         .getAllRecipesFor((RecipeType) type))
                 .orElse(List.of());
     }
@@ -356,7 +355,7 @@ public final class ActuallyAdditionsAtomicReconstructorAdapter implements Virtua
     }
 
     private static ResourceLocation aaId(String path) {
-        return ResourceLocation.fromNamespaceAndPath(MOD_ID, path);
+        return new ResourceLocation(MOD_ID, path);
     }
 
     private record PlannedInput(AEItemKey key, long amount) {

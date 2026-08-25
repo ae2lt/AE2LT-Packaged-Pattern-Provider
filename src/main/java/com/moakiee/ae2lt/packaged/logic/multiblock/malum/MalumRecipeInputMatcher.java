@@ -27,7 +27,7 @@ final class MalumRecipeInputMatcher {
         }
 
         return new Match<>(
-                assignments.getFirst(),
+                assignments.get(0),
                 List.copyOf(assignments.subList(1, 1 + spirits.size())),
                 List.copyOf(assignments.subList(1 + spirits.size(), assignments.size())));
     }
@@ -72,7 +72,7 @@ final class MalumRecipeInputMatcher {
             if (assign(requirementIndex + 1, requirements, remaining, assignments)) {
                 return true;
             }
-            assignments.removeLast();
+            assignments.remove(assignments.size() - 1);
             input.amount += requirement.amount();
         }
         return false;

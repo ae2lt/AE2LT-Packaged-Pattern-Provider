@@ -501,8 +501,8 @@ public class PackagedPatternProviderLogic extends StablePatternProviderLogic {
     @Nullable
     private LaneEnv resolveLaneEnv(ServerLevel providerLevel, LaneCandidate candidate) {
         var lane = candidate.lane();
-        if (lane instanceof LaneKey.FaceLane(Direction face)) {
-            var pos = getProviderHost().getBlockPos().relative(face);
+        if (lane instanceof LaneKey.FaceLane faceLane) {
+            var pos = getProviderHost().getBlockPos().relative(faceLane.face());
             if (!providerLevel.isLoaded(pos)) {
                 return null;
             }

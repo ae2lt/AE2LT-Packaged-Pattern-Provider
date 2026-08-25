@@ -15,10 +15,12 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BlockEntity;
-import net.neoforged.neoforge.capabilities.Capabilities;
-import net.neoforged.neoforge.fluids.FluidStack;
-import net.neoforged.neoforge.fluids.capability.IFluidHandler;
-import net.neoforged.neoforge.items.IItemHandler;
+import net.minecraftforge.common.capabilities.ForgeCapabilities;
+
+import com.moakiee.ae2lt.packaged.logic.multiblock.BlockCapabilities;
+import net.minecraftforge.fluids.FluidStack;
+import net.minecraftforge.fluids.capability.IFluidHandler;
+import net.minecraftforge.items.IItemHandler;
 
 import appeng.api.config.Actionable;
 import appeng.api.crafting.IPatternDetails;
@@ -263,7 +265,7 @@ public final class MekanismMoreMachinesAdapter implements MultiblockAdapter {
             ServerLevel level, BlockPos pos, Direction side) {
         return (stack, mode) -> {
             if (!(stack.what() instanceof AEItemKey itemKey)) return 0L;
-            IItemHandler handler = level.getCapability(Capabilities.ItemHandler.BLOCK, pos, side);
+            IItemHandler handler = BlockCapabilities.find(level, pos, ForgeCapabilities.ITEM_HANDLER, side);
             if (handler == null) return 0L;
             ItemStack toInsert = itemKey.toStack((int) stack.amount());
             return MekItemInsertion.insertIntoAnySlot(toInsert, mode == Actionable.SIMULATE,
@@ -281,7 +283,7 @@ public final class MekanismMoreMachinesAdapter implements MultiblockAdapter {
             ServerLevel level, BlockPos pos, Direction side) {
         return (stack, mode) -> {
             if (!(stack.what() instanceof AEFluidKey fluidKey)) return 0L;
-            IFluidHandler handler = level.getCapability(Capabilities.FluidHandler.BLOCK, pos, side);
+            IFluidHandler handler = BlockCapabilities.find(level, pos, ForgeCapabilities.FLUID_HANDLER, side);
             if (handler == null) return 0L;
             FluidStack toInsert = fluidKey.toStack((int) stack.amount());
             int filled = handler.fill(toInsert,
@@ -308,7 +310,7 @@ public final class MekanismMoreMachinesAdapter implements MultiblockAdapter {
 
     private static void extractItems(ServerLevel level, BlockPos pos, Direction side,
                                      AllowedOutputFilter filter, List<GenericStack> out) {
-        IItemHandler handler = level.getCapability(Capabilities.ItemHandler.BLOCK, pos, side);
+        IItemHandler handler = BlockCapabilities.find(level, pos, ForgeCapabilities.ITEM_HANDLER, side);
         if (handler == null) return;
         for (int i = 0; i < handler.getSlots(); i++) {
             ItemStack stack = handler.getStackInSlot(i);
@@ -324,7 +326,7 @@ public final class MekanismMoreMachinesAdapter implements MultiblockAdapter {
 
     private static void extractFluids(ServerLevel level, BlockPos pos, Direction side,
                                       AllowedOutputFilter filter, List<GenericStack> out) {
-        IFluidHandler handler = level.getCapability(Capabilities.FluidHandler.BLOCK, pos, side);
+        IFluidHandler handler = BlockCapabilities.find(level, pos, ForgeCapabilities.FLUID_HANDLER, side);
         if (handler == null) return;
         for (int i = 0; i < handler.getTanks(); i++) {
             FluidStack fluid = handler.getFluidInTank(i);

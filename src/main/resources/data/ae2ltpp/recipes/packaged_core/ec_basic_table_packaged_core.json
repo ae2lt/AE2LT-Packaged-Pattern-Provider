@@ -1,0 +1,36 @@
+{
+  "conditions": [
+    {
+      "type": "forge:mod_loaded",
+      "modid": "extendedcrafting"
+    }
+  ],
+  "type": "extendedcrafting:shaped_table",
+  "tier": 1,
+  "pattern": [
+    "LTL",
+    "BCB",
+    "LXL"
+  ],
+  "key": {
+    "L": {
+      "item": "extendedcrafting:luminessence"
+    },
+    "B": {
+      "item": "extendedcrafting:black_iron_ingot"
+    },
+    "T": {
+      "item": "extendedcrafting:basic_catalyst"
+    },
+    "X": {
+      "item": "extendedcrafting:crystaltine_catalyst"
+    },
+    "C": {
+      "item": "ae2ltpp:basic_packaged_core"
+    }
+  },
+  "result": {
+    "id": "ae2ltpp:ec_basic_table_packaged_core",
+    "count": 1
+  }
+}

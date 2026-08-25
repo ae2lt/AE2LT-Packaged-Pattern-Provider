@@ -3,19 +3,14 @@ package com.moakiee.ae2lt.packaged;
 import com.mojang.logging.LogUtils;
 import org.slf4j.Logger;
 
-import net.minecraft.world.level.block.entity.BlockEntityType;
-import net.neoforged.bus.api.IEventBus;
-import net.neoforged.fml.ModContainer;
-import net.neoforged.fml.common.Mod;
-import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
-import net.neoforged.neoforge.capabilities.RegisterCapabilitiesEvent;
-import appeng.api.AECapabilities;
-import appeng.api.networking.IInWorldGridNodeHost;
+import net.minecraftforge.eventbus.api.IEventBus;
+import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
+import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import appeng.blockentity.AEBaseBlockEntity;
 
 import com.moakiee.ae2lt.packaged.blockentity.PackagedPatternProviderBlockEntity;
 import com.moakiee.ae2lt.packaged.blockentity.WirelessPackagedPatternProviderBlockEntity;
-import com.moakiee.ae2lt.packaged.logic.PackagedPatternProviderLogic;
 import com.moakiee.ae2lt.packaged.logic.multiblock.MultiblockAdapterRegistry;
 import com.moakiee.ae2lt.packaged.logic.multiblock.aa.ActuallyAdditionsAtomicReconstructorAdapter;
 import com.moakiee.ae2lt.packaged.logic.multiblock.aa.ActuallyAdditionsEmpowererAdapter;
@@ -45,7 +40,6 @@ import com.moakiee.ae2lt.packaged.registry.PPBlocks;
 import com.moakiee.ae2lt.packaged.registry.PPCreativeTabs;
 import com.moakiee.ae2lt.packaged.registry.PPItems;
 import com.moakiee.ae2lt.packaged.registry.PPMenuTypes;
-import com.moakiee.ae2lt.packaged.patternprovider.InsertOnlyPatternProviderReturnInventory;
 import com.moakiee.ae2lt.packaged.patternprovider.StablePatternProviderBlockEntity;
 
 @Mod(AE2LTPackagedProvider.MODID)
@@ -53,7 +47,9 @@ public class AE2LTPackagedProvider {
     public static final String MODID = "ae2ltpp";
     private static final Logger LOGGER = LogUtils.getLogger();
 
-    public AE2LTPackagedProvider(IEventBus modEventBus, ModContainer modContainer) {
+    public AE2LTPackagedProvider() {
+        IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
+
         PPItems.ITEMS.register(modEventBus);
         PPBlocks.BLOCKS.register(modEventBus);
         PPBlockEntities.BLOCK_ENTITY_TYPES.register(modEventBus);
@@ -61,7 +57,6 @@ public class AE2LTPackagedProvider {
         PPCreativeTabs.CREATIVE_MODE_TABS.register(modEventBus);
 
         modEventBus.addListener(this::commonSetup);
-        modEventBus.addListener(this::registerCapabilities);
     }
 
     private void commonSetup(final FMLCommonSetupEvent event) {
@@ -114,32 +109,9 @@ public class AE2LTPackagedProvider {
         });
     }
 
-    private void registerCapabilities(RegisterCapabilitiesEvent event) {
-        registerGridNodeHost(event, PPBlockEntities.PACKAGED_PATTERN_PROVIDER.get());
-        registerGridNodeHost(event, PPBlockEntities.WIRELESS_PACKAGED_PATTERN_PROVIDER.get());
-
-        event.registerBlock(
-                AECapabilities.GENERIC_INTERNAL_INV,
-                (level, pos, state, blockEntity, context) -> {
-                    if (blockEntity instanceof PackagedPatternProviderBlockEntity be
-                            && be.getLogic() instanceof PackagedPatternProviderLogic logic) {
-                        return new InsertOnlyPatternProviderReturnInventory(
-                                logic.getInternalReturnInv(),
-                                logic);
-                    }
-                    return null;
-                },
-                PPBlocks.PACKAGED_PATTERN_PROVIDER.get(),
-                PPBlocks.WIRELESS_PACKAGED_PATTERN_PROVIDER.get());
-    }
-
-    private static void registerGridNodeHost(
-            RegisterCapabilitiesEvent event,
-            BlockEntityType<? extends StablePatternProviderBlockEntity> type) {
-        event.registerBlockEntity(
-                AECapabilities.IN_WORLD_GRID_NODE_HOST,
-                type,
-                (blockEntity, context) -> (IInWorldGridNodeHost) blockEntity);
-    }
-
+    // Forge 1.20.1 has no block-entity capability-provider registration event.
+    // AE2's IN_WORLD_GRID_NODE_HOST lookup falls back to an
+    // `instanceof IInWorldGridNodeHost` check (GridHelper#getNodeHost) that
+    // AENetworkBlockEntity already satisfies, and GENERIC_INTERNAL_INV is
+    // exposed from StablePatternProviderBlockEntity#getCapability instead.
 }

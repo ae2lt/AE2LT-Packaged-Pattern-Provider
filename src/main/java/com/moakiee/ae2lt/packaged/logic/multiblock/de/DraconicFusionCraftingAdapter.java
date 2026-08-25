@@ -17,11 +17,11 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Ingredient;
-import net.minecraft.world.item.crafting.RecipeHolder;
+import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
-import net.neoforged.fml.ModList;
+import net.minecraftforge.fml.ModList;
 
 import appeng.api.config.Actionable;
 import appeng.api.crafting.IPatternDetails;
@@ -91,7 +91,7 @@ public final class DraconicFusionCraftingAdapter implements MultiblockAdapter {
         var expected = DEReflection.getResultItem(bind.recipe(), level);
         if (expected == null || expected.isEmpty()) return false;
         if (!outputStack.isEmpty()) {
-            if (!ItemStack.isSameItemSameComponents(outputStack, expected)
+            if (!ItemStack.isSameItemSameTags(outputStack, expected)
                     || outputStack.getCount() + expected.getCount() > expected.getMaxStackSize()) {
                 return false;
             }
@@ -173,7 +173,7 @@ public final class DraconicFusionCraftingAdapter implements MultiblockAdapter {
         if (recipes == null) return null;
 
         for (var holder : recipes) {
-            var recipe = holder.value();
+            var recipe = holder;
             var catalyst = DEReflection.getCatalyst(recipe);
             var fusionIngredients = DEReflection.getFusionIngredients(recipe);
             var recipeTierIndex = DEReflection.getRecipeTierIndex(recipe);
@@ -338,13 +338,13 @@ public final class DraconicFusionCraftingAdapter implements MultiblockAdapter {
 
     private static boolean hasSingleItemOutput(IPatternDetails pattern) {
         var outputs = pattern.getOutputs();
-        return outputs.size() == 1 && outputs.getFirst().what() instanceof AEItemKey;
+        return outputs.length == 1 && outputs[0].what() instanceof AEItemKey;
     }
 
     private static boolean outputMatches(IPatternDetails pattern, ItemStack result) {
         var outputs = pattern.getOutputs();
-        if (outputs.size() != 1) return false;
-        var expected = outputs.getFirst();
+        if (outputs.length != 1) return false;
+        var expected = outputs[0];
         if (!(expected.what() instanceof AEItemKey expectedKey) || expected.amount() != result.getCount()) {
             return false;
         }
@@ -363,7 +363,7 @@ public final class DraconicFusionCraftingAdapter implements MultiblockAdapter {
     }
 
     private static ResourceLocation deId(String path) {
-        return ResourceLocation.fromNamespaceAndPath(MOD_ID, path);
+        return new ResourceLocation(MOD_ID, path);
     }
 
     // ===== Records =====
@@ -563,13 +563,13 @@ public final class DraconicFusionCraftingAdapter implements MultiblockAdapter {
 
         @Nullable
         @SuppressWarnings("unchecked")
-        static List<RecipeHolder<?>> getFusionRecipes(ServerLevel level) {
+        static List<Recipe<?>> getFusionRecipes(ServerLevel level) {
             ensureLookup();
             if (fusionRecipeType == null) return null;
             try {
                 var allRecipes = level.getRecipeManager()
                         .getAllRecipesFor((RecipeType) fusionRecipeType);
-                return (List<RecipeHolder<?>>) (List<?>) allRecipes;
+                return (List<Recipe<?>>) (List<?>) allRecipes;
             } catch (RuntimeException | LinkageError e) {
                 return null;
             }

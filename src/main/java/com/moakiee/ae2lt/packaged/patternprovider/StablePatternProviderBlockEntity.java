@@ -10,14 +10,12 @@ import org.jetbrains.annotations.Nullable;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.Nameable;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
@@ -103,7 +101,7 @@ public abstract class StablePatternProviderBlockEntity
         public static WirelessConnection fromTag(CompoundTag tag) {
             var dimension = ResourceKey.create(
                     Registries.DIMENSION,
-                    ResourceLocation.parse(tag.getString(TAG_DIMENSION)));
+                    new ResourceLocation(tag.getString(TAG_DIMENSION)));
             return new WirelessConnection(
                     dimension,
                     BlockPos.of(tag.getLong(TAG_POSITION)),
@@ -227,7 +225,7 @@ public abstract class StablePatternProviderBlockEntity
         recomputeIdlePower();
         notifyLogicStateChanged();
         saveChanges();
-        markForClientUpdate();
+        markForUpdate();
     }
 
     public ReturnMode getReturnMode() {
@@ -241,7 +239,7 @@ public abstract class StablePatternProviderBlockEntity
         returnMode = mode;
         notifyLogicStateChanged();
         saveChanges();
-        markForClientUpdate();
+        markForUpdate();
     }
 
     public WirelessDispatchMode getWirelessDispatchMode() {
@@ -255,7 +253,7 @@ public abstract class StablePatternProviderBlockEntity
         wirelessDispatchMode = mode;
         notifyLogicStateChanged();
         saveChanges();
-        markForClientUpdate();
+        markForUpdate();
     }
 
     public WirelessSpeedMode getWirelessSpeedMode() {
@@ -270,7 +268,7 @@ public abstract class StablePatternProviderBlockEntity
         recomputeIdlePower();
         notifyLogicStateChanged();
         saveChanges();
-        markForClientUpdate();
+        markForUpdate();
     }
 
     public boolean isFilteredImport() {
@@ -283,7 +281,7 @@ public abstract class StablePatternProviderBlockEntity
         }
         filteredImport = filtered;
         saveChanges();
-        markForClientUpdate();
+        markForUpdate();
     }
 
     @Override
@@ -333,7 +331,7 @@ public abstract class StablePatternProviderBlockEntity
         }
         notifyLogicStateChanged();
         saveChanges();
-        markForClientUpdate();
+        markForUpdate();
     }
 
     public int clearInvalidConnections() {
@@ -361,7 +359,7 @@ public abstract class StablePatternProviderBlockEntity
             recomputeIdlePower();
             notifyLogicStateChanged();
             saveChanges();
-            markForClientUpdate();
+            markForUpdate();
         }
         return result.removed();
     }
@@ -377,7 +375,7 @@ public abstract class StablePatternProviderBlockEntity
     }
 
     @Override
-    protected void writeToStream(RegistryFriendlyByteBuf data) {
+    protected void writeToStream(FriendlyByteBuf data) {
         super.writeToStream(data);
         data.writeByte(providerMode.ordinal());
         data.writeByte(returnMode.ordinal());
@@ -393,7 +391,7 @@ public abstract class StablePatternProviderBlockEntity
     }
 
     @Override
-    protected boolean readFromStream(RegistryFriendlyByteBuf data) {
+    protected boolean readFromStream(FriendlyByteBuf data) {
         boolean changed = super.readFromStream(data);
         var newProviderMode = enumByOrdinal(
                 ProviderMode.values(), data.readByte(), ProviderMode.NORMAL);
@@ -447,9 +445,8 @@ public abstract class StablePatternProviderBlockEntity
     }
 
     @Override
-    public void saveAdditional(
-            CompoundTag data, HolderLookup.Provider registries) {
-        super.saveAdditional(data, registries);
+    public void saveAdditional(CompoundTag data) {
+        super.saveAdditional(data);
         data.putString(TAG_PROVIDER_MODE, providerMode.name());
         data.putString(TAG_RETURN_MODE, returnMode.name());
         data.putString(TAG_WIRELESS_DISPATCH_MODE, wirelessDispatchMode.name());
@@ -459,8 +456,8 @@ public abstract class StablePatternProviderBlockEntity
     }
 
     @Override
-    public void loadTag(CompoundTag data, HolderLookup.Provider registries) {
-        super.loadTag(data, registries);
+    public void loadTag(CompoundTag data) {
+        super.loadTag(data);
         var state = decodePersistentState(data);
         providerMode = state.providerMode();
         returnMode = state.returnMode();
@@ -599,7 +596,7 @@ public abstract class StablePatternProviderBlockEntity
     @Override
     public PatternContainerGroup getTerminalGroup() {
         if (providerMode != ProviderMode.WIRELESS
-                || (this instanceof Nameable nameable && nameable.hasCustomName())
+                || hasCustomName()
                 || !(level instanceof ServerLevel hostLevel)
                 || connections.isEmpty()) {
             return super.getTerminalGroup();

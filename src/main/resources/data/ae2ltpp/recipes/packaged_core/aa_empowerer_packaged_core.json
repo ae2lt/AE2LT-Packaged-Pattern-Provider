@@ -1,0 +1,33 @@
+{
+  "conditions": [
+    {
+      "type": "forge:mod_loaded",
+      "modid": "actuallyadditions"
+    }
+  ],
+  "type": "actuallyadditions:empowering",
+  "base": {
+    "item": "ae2ltpp:basic_packaged_core"
+  },
+  "modifiers": [
+    {
+      "item": "actuallyadditions:empowered_restonia_crystal"
+    },
+    {
+      "item": "actuallyadditions:empowered_palis_crystal"
+    },
+    {
+      "item": "actuallyadditions:empowered_diamatine_crystal"
+    },
+    {
+      "item": "actuallyadditions:empowered_void_crystal"
+    }
+  ],
+  "energy": 200000,
+  "time": 200,
+  "color": 16777215,
+  "result": {
+    "count": 1,
+    "id": "ae2ltpp:aa_empowerer_packaged_core"
+  }
+}

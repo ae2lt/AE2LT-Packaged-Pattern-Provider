@@ -70,14 +70,11 @@ final class PackagedProviderTextureButton extends Button implements ITooltip {
     protected void renderWidget(
             GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
         var yOffset = isHovered() ? 1 : 0;
-        var background = isHovered()
-                ? Icon.TOOLBAR_BUTTON_BACKGROUND_HOVER
-                : isFocused()
-                        ? Icon.TOOLBAR_BUTTON_BACKGROUND_FOCUS
-                        : Icon.TOOLBAR_BUTTON_BACKGROUND;
-        background.getBlitter()
+        // 1.20.1's Icon sheet has a single toolbar background (no hover/focus
+        // variants) and Blitter carries no z-offset control, so the press
+        // feedback is conveyed by the vertical nudge alone.
+        Icon.TOOLBAR_BUTTON_BACKGROUND.getBlitter()
                 .dest(getX() - 1, getY() + yOffset, 18, 20)
-                .zOffset(2)
                 .blit(guiGraphics);
 
         var texture = state ? onTexture : offTexture;
@@ -86,7 +83,6 @@ final class PackagedProviderTextureButton extends Button implements ITooltip {
             blitter.opacity(0.5f);
         }
         blitter.dest(getX(), getY() + 1 + yOffset)
-                .zOffset(3)
                 .blit(guiGraphics);
     }
 
@@ -106,7 +102,7 @@ final class PackagedProviderTextureButton extends Button implements ITooltip {
     }
 
     private static ResourceLocation texture(String name) {
-        return ResourceLocation.fromNamespaceAndPath(
+        return new ResourceLocation(
                 "ae2lt", "textures/gui/buttons/" + name + ".png");
     }
 }

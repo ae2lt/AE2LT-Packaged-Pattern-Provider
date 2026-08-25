@@ -10,7 +10,6 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
-import net.minecraft.world.item.crafting.RecipeHolder;
 import net.minecraft.world.item.crafting.RecipeType;
 
 import appeng.api.crafting.IPatternDetails;
@@ -23,7 +22,7 @@ import com.moakiee.ae2lt.packaged.logic.multiblock.ReflectionSupport;
  * Centralised Botania recipe lookups + pattern-output validation.
  *
  * <p>Each {@code findXxx(...)} method iterates the relevant
- * {@link RecipeType} and returns the first {@link RecipeHolder} whose
+ * {@link RecipeType} and returns the first {@link Recipe} whose
  * result item matches the pattern's declared output. For single-output
  * recipes, the helper also enforces the anti-duplication rule by
  * comparing the pattern key against the recipe's real result key
@@ -37,12 +36,12 @@ public final class BotaniaRecipeLookup {
     // ===== Generic helpers =====
 
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static List<RecipeHolder<?>> recipesOf(ServerLevel level, @Nullable RecipeType<?> type) {
+    private static List<Recipe<?>> recipesOf(ServerLevel level, @Nullable RecipeType<?> type) {
         if (type == null) {
             return List.of();
         }
         try {
-            return (List<RecipeHolder<?>>) (List<?>) level.getRecipeManager()
+            return (List<Recipe<?>>) (List<?>) level.getRecipeManager()
                     .getAllRecipesFor((RecipeType) type);
         } catch (RuntimeException | LinkageError ignored) {
             return List.of();
@@ -64,10 +63,10 @@ public final class BotaniaRecipeLookup {
      */
     public static Optional<AEItemKey> patternPrimaryOutputKey(IPatternDetails pattern) {
         var outputs = pattern.getOutputs();
-        if (outputs.size() != 1) {
+        if (outputs.length != 1) {
             return Optional.empty();
         }
-        var first = outputs.getFirst();
+        var first = outputs[0];
         return first.what() instanceof AEItemKey key ? Optional.of(key) : Optional.empty();
     }
 
@@ -77,10 +76,10 @@ public final class BotaniaRecipeLookup {
      */
     public static long patternPrimaryOutputAmount(IPatternDetails pattern) {
         var outputs = pattern.getOutputs();
-        if (outputs.size() != 1) {
+        if (outputs.length != 1) {
             return 0L;
         }
-        return outputs.getFirst().amount();
+        return outputs[0].amount();
     }
 
     /**
@@ -97,10 +96,10 @@ public final class BotaniaRecipeLookup {
      */
     public static boolean validatePatternOutputKey(IPatternDetails pattern, ItemStack actualResult) {
         var outputs = pattern.getOutputs();
-        if (outputs.size() != 1) {
+        if (outputs.length != 1) {
             return false;
         }
-        var expected = outputs.getFirst();
+        var expected = outputs[0];
         if (!(expected.what() instanceof AEItemKey expectedKey)) {
             return false;
         }
@@ -121,10 +120,10 @@ public final class BotaniaRecipeLookup {
     public static boolean validatePatternBatchOutput(IPatternDetails pattern, ItemStack actualResult,
                                                      long expectedTotalCount) {
         var outputs = pattern.getOutputs();
-        if (outputs.size() != 1) {
+        if (outputs.length != 1) {
             return false;
         }
-        var expected = outputs.getFirst();
+        var expected = outputs[0];
         if (!(expected.what() instanceof AEItemKey expectedKey)) {
             return false;
         }
@@ -145,7 +144,7 @@ public final class BotaniaRecipeLookup {
      */
     public static boolean validatePatternMultiOutput(IPatternDetails pattern, List<ItemStack> actualResults) {
         var patternOutputs = pattern.getOutputs();
-        if (patternOutputs.size() != actualResults.size()) {
+        if (patternOutputs.length != actualResults.size()) {
             return false;
         }
         // Build expected list of (item, count) from recipe outputs.
@@ -199,13 +198,13 @@ public final class BotaniaRecipeLookup {
      * recipe's real result key on success (anti-dup).
      */
     @Nullable
-    public static RecipeHolder<?> findManaInfusionByOutput(ServerLevel level, IPatternDetails pattern) {
+    public static Recipe<?> findManaInfusionByOutput(ServerLevel level, IPatternDetails pattern) {
         var patternKey = patternPrimaryOutputKey(pattern).orElse(null);
         if (patternKey == null) {
             return null;
         }
         for (var holder : recipesOf(level, BotaniaReflection.manaInfusionType())) {
-            var recipe = holder.value();
+            var recipe = holder;
             var result = safeResult(recipe, level);
             if (result == null || result.isEmpty()) {
                 continue;
@@ -224,13 +223,13 @@ public final class BotaniaRecipeLookup {
     // ===== Petal Apothecary =====
 
     @Nullable
-    public static RecipeHolder<?> findPetalApothecaryByOutput(ServerLevel level, IPatternDetails pattern) {
+    public static Recipe<?> findPetalApothecaryByOutput(ServerLevel level, IPatternDetails pattern) {
         var patternKey = patternPrimaryOutputKey(pattern).orElse(null);
         if (patternKey == null) {
             return null;
         }
         for (var holder : recipesOf(level, BotaniaReflection.petalType())) {
-            var recipe = holder.value();
+            var recipe = holder;
             var result = safeResult(recipe, level);
             if (result == null || result.isEmpty()) {
                 continue;
@@ -262,13 +261,13 @@ public final class BotaniaRecipeLookup {
      * would see the craft never dispatch.
      */
     @Nullable
-    public static RecipeHolder<?> findRunicAltarByOutput(ServerLevel level, IPatternDetails pattern) {
+    public static Recipe<?> findRunicAltarByOutput(ServerLevel level, IPatternDetails pattern) {
         var patternOutputs = pattern.getOutputs();
-        if (patternOutputs.isEmpty()) {
+        if (patternOutputs.length == 0) {
             return null;
         }
         for (var holder : recipesOf(level, BotaniaReflection.runeType())) {
-            var recipe = holder.value();
+            var recipe = holder;
             var result = safeResult(recipe, level);
             if (result == null || result.isEmpty()) {
                 continue;
@@ -313,7 +312,7 @@ public final class BotaniaRecipeLookup {
                 nonEmptyCatalystCount++;
             }
         }
-        if (patternOutputs.size() != 1 + nonEmptyCatalystCount) {
+        if (patternOutputs.length != 1 + nonEmptyCatalystCount) {
             return false;
         }
         boolean idOnly = OverloadPatternSemantics.isIdOnlyOutput(pattern, 0);
@@ -369,13 +368,13 @@ public final class BotaniaRecipeLookup {
     // ===== Terra Plate (Terrestrial Agglomeration) =====
 
     @Nullable
-    public static RecipeHolder<?> findTerraPlateByOutput(ServerLevel level, IPatternDetails pattern) {
+    public static Recipe<?> findTerraPlateByOutput(ServerLevel level, IPatternDetails pattern) {
         var patternKey = patternPrimaryOutputKey(pattern).orElse(null);
         if (patternKey == null) {
             return null;
         }
         for (var holder : recipesOf(level, BotaniaReflection.terraPlateType())) {
-            var recipe = holder.value();
+            var recipe = holder;
             var result = safeResult(recipe, level);
             if (result == null || result.isEmpty()) {
                 continue;
@@ -399,13 +398,13 @@ public final class BotaniaRecipeLookup {
      * (no more, no fewer, matching counts).
      */
     @Nullable
-    public static RecipeHolder<?> findElvenTradeByOutputs(ServerLevel level, IPatternDetails pattern) {
+    public static Recipe<?> findElvenTradeByOutputs(ServerLevel level, IPatternDetails pattern) {
         var patternOutputs = pattern.getOutputs();
-        if (patternOutputs.isEmpty()) {
+        if (patternOutputs.length == 0) {
             return null;
         }
         for (var holder : recipesOf(level, BotaniaReflection.elvenTradeType())) {
-            var recipe = holder.value();
+            var recipe = holder;
             var outputs = elvenTradeOutputs(recipe);
             if (outputs.isEmpty()) {
                 continue;

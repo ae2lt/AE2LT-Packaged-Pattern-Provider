@@ -64,13 +64,8 @@ public final class InsertOnlyPatternProviderReturnInventory
     }
 
     @Override
-    public boolean isSupportedType(AEKeyType type) {
-        return true;
-    }
-
-    @Override
-    public boolean isAllowedIn(int slot, AEKey what) {
-        return delegate.isAllowedIn(slot, what);
+    public boolean isAllowed(AEKey what) {
+        return delegate.isAllowed(what);
     }
 
     @Override

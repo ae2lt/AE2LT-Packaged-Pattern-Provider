@@ -5,7 +5,7 @@ import appeng.menu.SlotSemantics;
 
 public final class PackagedPatternProviderSlotSemantics {
     public static final SlotSemantic ADAPTER_CARD =
-            SlotSemantics.register("AE2LTPP_ADAPTER_CARD", false, 500);
+            SlotSemantics.register("AE2LTPP_ADAPTER_CARD", false);
 
     private PackagedPatternProviderSlotSemantics() {
     }

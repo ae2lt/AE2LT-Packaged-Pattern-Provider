@@ -5,7 +5,6 @@ import java.util.List;
 
 import org.jetbrains.annotations.Nullable;
 
-import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
@@ -26,7 +25,7 @@ import appeng.api.networking.ticking.TickingRequest;
 import appeng.api.stacks.AEItemKey;
 import appeng.api.stacks.AEKey;
 import appeng.api.stacks.GenericStack;
-import appeng.api.storage.AEKeySlotFilter;
+import appeng.api.storage.AEKeyFilter;
 import appeng.helpers.patternprovider.PatternProviderLogic;
 import appeng.me.helpers.MachineSource;
 import appeng.util.inv.filter.IAEItemFilter;
@@ -98,7 +97,9 @@ public class StablePatternProviderLogic extends PatternProviderLogic {
             alertGridTick();
             providerHost.saveChanges();
         };
-        AEKeySlotFilter returnFilter = (slot, key) -> {
+        // 1.20.1's AEKeyFilter is slot-agnostic; the packaged provider's rule
+        // never depended on the slot index anyway.
+        AEKeyFilter returnFilter = key -> {
             if (!providerHost.isFilteredImport()) {
                 return true;
             }
@@ -198,8 +199,8 @@ public class StablePatternProviderLogic extends PatternProviderLogic {
         for (var pattern : getAvailablePatterns()) {
             if (pattern instanceof OverloadedPatternDetails overload) {
                 var actualOutputs = pattern.getOutputs();
-                for (int i = 0; i < actualOutputs.size(); i++) {
-                    var key = actualOutputs.get(i).what();
+                for (int i = 0; i < actualOutputs.length; i++) {
+                    var key = actualOutputs[i].what();
                     if (overload.isFuzzyOutput(i)) {
                         filter.allowIdOnly(key);
                     } else {
@@ -351,11 +352,11 @@ public class StablePatternProviderLogic extends PatternProviderLogic {
         }
         int outputIndex = resolveUnlockOutputIndex(pattern);
         var actualOutputs = pattern.getOutputs();
-        if (outputIndex < 0 || outputIndex >= actualOutputs.size()) {
+        if (outputIndex < 0 || outputIndex >= actualOutputs.length) {
             return;
         }
         pendingUnlockIdOnly = overload.isFuzzyOutput(outputIndex);
-        var key = actualOutputs.get(outputIndex).what();
+        var key = actualOutputs[outputIndex].what();
         pendingUnlockTemplate = key instanceof AEItemKey itemKey
                 ? itemKey.toStack(1)
                 : null;
@@ -363,12 +364,12 @@ public class StablePatternProviderLogic extends PatternProviderLogic {
 
     private static int resolveUnlockOutputIndex(IPatternDetails pattern) {
         var actualOutputs = pattern.getOutputs();
-        if (actualOutputs.isEmpty()) {
+        if (actualOutputs.length == 0) {
             return -1;
         }
         var primary = pattern.getPrimaryOutput();
-        for (int i = 0; i < actualOutputs.size(); i++) {
-            var candidate = actualOutputs.get(i);
+        for (int i = 0; i < actualOutputs.length; i++) {
+            var candidate = actualOutputs[i];
             if (candidate.what().equals(primary.what())
                     && candidate.amount() == primary.amount()) {
                 return i;
@@ -383,21 +384,21 @@ public class StablePatternProviderLogic extends PatternProviderLogic {
     }
 
     @Override
-    public void writeToNBT(CompoundTag tag, HolderLookup.Provider registries) {
-        super.writeToNBT(tag, registries);
+    public void writeToNBT(CompoundTag tag) {
+        super.writeToNBT(tag);
         if (pendingUnlockIdOnly != null) {
             tag.putString(TAG_UNLOCK_MATCH_MODE,
                     pendingUnlockIdOnly ? "ID_ONLY" : "STRICT");
         }
         if (pendingUnlockTemplate != null && !pendingUnlockTemplate.isEmpty()) {
             tag.put(TAG_UNLOCK_TEMPLATE,
-                    pendingUnlockTemplate.saveOptional(registries));
+                    pendingUnlockTemplate.save(new CompoundTag()));
         }
     }
 
     @Override
-    public void readFromNBT(CompoundTag tag, HolderLookup.Provider registries) {
-        super.readFromNBT(tag, registries);
+    public void readFromNBT(CompoundTag tag) {
+        super.readFromNBT(tag);
         pendingUnlockIdOnly = null;
         pendingUnlockTemplate = null;
         if (tag.contains(TAG_UNLOCK_MATCH_MODE, Tag.TAG_STRING)) {
@@ -409,8 +410,7 @@ public class StablePatternProviderLogic extends PatternProviderLogic {
             }
         }
         if (tag.contains(TAG_UNLOCK_TEMPLATE, Tag.TAG_COMPOUND)) {
-            var template = ItemStack.parseOptional(
-                    registries, tag.getCompound(TAG_UNLOCK_TEMPLATE));
+            var template = ItemStack.of(tag.getCompound(TAG_UNLOCK_TEMPLATE));
             pendingUnlockTemplate = template.isEmpty() ? null : template;
         }
         cachedOutputFilter = null;
@@ -435,7 +435,7 @@ public class StablePatternProviderLogic extends PatternProviderLogic {
         @Override
         public TickingRequest getTickingRequest(IGridNode node) {
             return new TickingRequest(
-                    GRID_TICK_MIN, GRID_TICK_MAX, !hasCombinedTickWork());
+                    GRID_TICK_MIN, GRID_TICK_MAX, !hasCombinedTickWork(), true);
         }
 
         @Override

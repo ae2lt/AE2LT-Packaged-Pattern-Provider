@@ -15,16 +15,15 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.crafting.CraftingInput;
+import net.minecraft.world.inventory.CraftingContainer;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
-import net.minecraft.world.item.crafting.RecipeHolder;
 import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
-import net.neoforged.fml.ModList;
-import net.neoforged.neoforge.items.IItemHandler;
-import net.neoforged.neoforge.items.IItemHandlerModifiable;
+import net.minecraftforge.fml.ModList;
+import net.minecraftforge.items.IItemHandler;
+import net.minecraftforge.items.IItemHandlerModifiable;
 
 import appeng.api.crafting.IPatternDetails;
 import appeng.api.networking.security.IActionSource;
@@ -263,7 +262,7 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
 
     @Nullable
     private static TableBindHandle searchHandle(ServerLevel level, IPatternDetails pattern, TableSpec spec) {
-        var patternOut = pattern.getOutputs().getFirst();
+        var patternOut = pattern.getOutputs()[0];
         if (!(patternOut.what() instanceof AEItemKey patternOutKey) || patternOut.amount() <= 0) {
             return null;
         }
@@ -292,7 +291,7 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
         boolean overload = OverloadPatternSemantics.isIdOnlyOutput(pattern, 0);
 
         for (var holder : recipes(level)) {
-            var recipe = holder.value();
+            var recipe = holder;
             if (!tableCanCraftRecipe(spec, recipe)) {
                 continue;
             }
@@ -481,9 +480,9 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
     }
 
     @Nullable
-    private static Object findMatchingRecipe(ServerLevel level, CraftingInput input) {
+    private static Object findMatchingRecipe(ServerLevel level, CraftingContainer input) {
         for (var holder : recipes(level)) {
-            var recipe = holder.value();
+            var recipe = holder;
             if (recipeMatches(recipe, input, level)) {
                 return recipe;
             }
@@ -491,16 +490,16 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
         return null;
     }
 
-    private static boolean canApplyRemaining(IItemHandler handler, int gridSize, CraftingInput input,
+    private static boolean canApplyRemaining(IItemHandler handler, int gridSize, CraftingContainer input,
                                              NonNullList<ItemStack> remaining) {
-        if (remaining.size() < input.size()) {
+        if (remaining.size() < input.getContainerSize()) {
             return false;
         }
         int top = AvaritiaReflection.top(input);
         int left = AvaritiaReflection.left(input);
-        for (int y = 0; y < input.height(); y++) {
-            for (int x = 0; x < input.width(); x++) {
-                int inputIndex = x + y * input.width();
+        for (int y = 0; y < input.getHeight(); y++) {
+            for (int x = 0; x < input.getWidth(); x++) {
+                int inputIndex = x + y * input.getWidth();
                 int slot = x + left + (y + top) * gridSize;
                 var current = handler.getStackInSlot(slot);
                 if (current.isEmpty()) {
@@ -516,7 +515,7 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
                 if (afterConsume <= 0) {
                     continue;
                 }
-                if (!ItemStack.isSameItemSameComponents(current, remainder)) {
+                if (!ItemStack.isSameItemSameTags(current, remainder)) {
                     return false;
                 }
                 if (afterConsume + remainder.getCount() > current.getMaxStackSize()) {
@@ -528,13 +527,13 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
     }
 
     private static void applyCraftRemainders(IItemHandlerModifiable handler, int gridSize,
-                                             CraftingInput input,
+                                             CraftingContainer input,
                                              NonNullList<ItemStack> remaining) {
         int top = AvaritiaReflection.top(input);
         int left = AvaritiaReflection.left(input);
-        for (int y = 0; y < input.height(); y++) {
-            for (int x = 0; x < input.width(); x++) {
-                int inputIndex = x + y * input.width();
+        for (int y = 0; y < input.getHeight(); y++) {
+            for (int x = 0; x < input.getWidth(); x++) {
+                int inputIndex = x + y * input.getWidth();
                 int slot = x + left + (y + top) * gridSize;
                 var current = handler.getStackInSlot(slot);
                 if (!current.isEmpty()) {
@@ -549,7 +548,7 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
                 var after = handler.getStackInSlot(slot);
                 if (after.isEmpty()) {
                     handler.setStackInSlot(slot, remainder.copy());
-                } else if (ItemStack.isSameItemSameComponents(after, remainder)) {
+                } else if (ItemStack.isSameItemSameTags(after, remainder)) {
                     var combined = after.copy();
                     combined.grow(remainder.getCount());
                     handler.setStackInSlot(slot, combined);
@@ -585,16 +584,16 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
 
     private static boolean hasSingleItemOutput(IPatternDetails pattern) {
         var outputs = pattern.getOutputs();
-        return outputs.size() == 1 && outputs.getFirst().what() instanceof AEItemKey;
+        return outputs.length == 1 && outputs[0].what() instanceof AEItemKey;
     }
 
     private static boolean outputMatchesBatch(IPatternDetails pattern, ItemStack result,
                                               long expectedTotalCount) {
         var outputs = pattern.getOutputs();
-        if (outputs.size() != 1) {
+        if (outputs.length != 1) {
             return false;
         }
-        var expected = outputs.getFirst();
+        var expected = outputs[0];
         if (!(expected.what() instanceof AEItemKey expectedKey)
                 || expected.amount() != expectedTotalCount) {
             return false;
@@ -606,7 +605,7 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static boolean recipeMatches(Object recipe, CraftingInput input, ServerLevel level) {
+    private static boolean recipeMatches(Object recipe, CraftingContainer input, ServerLevel level) {
         try {
             return recipe instanceof Recipe<?> r && ((Recipe) r).matches(input, level);
         } catch (RuntimeException | LinkageError ignored) {
@@ -616,7 +615,7 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
 
     @Nullable
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static ItemStack assemble(Object recipe, CraftingInput input, ServerLevel level) {
+    private static ItemStack assemble(Object recipe, CraftingContainer input, ServerLevel level) {
         try {
             return recipe instanceof Recipe<?> r
                     ? ((Recipe) r).assemble(input, level.registryAccess())
@@ -628,7 +627,7 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
 
     @Nullable
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static NonNullList<ItemStack> remainingItems(Object recipe, CraftingInput input) {
+    private static NonNullList<ItemStack> remainingItems(Object recipe, CraftingContainer input) {
         try {
             return recipe instanceof Recipe<?> r
                     ? ((Recipe) r).getRemainingItems(input)
@@ -663,9 +662,9 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static List<RecipeHolder<?>> recipes(ServerLevel level) {
+    private static List<Recipe<?>> recipes(ServerLevel level) {
         return BuiltInRegistries.RECIPE_TYPE.getOptional(RECIPE_TYPE_ID)
-                .map(type -> (List<RecipeHolder<?>>) (List<?>) level.getRecipeManager()
+                .map(type -> (List<Recipe<?>>) (List<?>) level.getRecipeManager()
                         .getAllRecipesFor((RecipeType) type))
                 .orElse(List.of());
     }
@@ -697,7 +696,7 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
     }
 
     private static ResourceLocation avaritiaId(String path) {
-        return ResourceLocation.fromNamespaceAndPath(MOD_ID, path);
+        return new ResourceLocation(MOD_ID, path);
     }
 
     private record TableSpec(ResourceLocation blockId, int gridSize, int tier) {
@@ -761,20 +760,20 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
         }
 
         @Nullable
-        static CraftingInput createTierInput(int size, List<ItemStack> stacks, int tier) {
+        static CraftingContainer createTierInput(int size, List<ItemStack> stacks, int tier) {
             ensureLookup();
             if (tierInputOfMethod == null) {
                 return null;
             }
             try {
                 var value = tierInputOfMethod.invoke(null, size, size, stacks, tier);
-                return value instanceof CraftingInput input ? input : null;
+                return value instanceof CraftingContainer input ? input : null;
             } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
                 return null;
             }
         }
 
-        static int top(CraftingInput input) {
+        static int top(CraftingContainer input) {
             ensureLookup();
             if (tierInputTopMethod == null) {
                 return 0;
@@ -787,7 +786,7 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
             }
         }
 
-        static int left(CraftingInput input) {
+        static int left(CraftingContainer input) {
             ensureLookup();
             if (tierInputLeftMethod == null) {
                 return 0;

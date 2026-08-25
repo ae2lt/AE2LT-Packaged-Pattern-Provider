@@ -6,7 +6,7 @@ import appeng.api.config.Actionable;
 import appeng.api.stacks.AEKey;
 import appeng.api.stacks.AEKeyType;
 import appeng.api.stacks.GenericStack;
-import appeng.api.storage.AEKeySlotFilter;
+import appeng.api.storage.AEKeyFilter;
 import appeng.helpers.patternprovider.PatternProviderReturnInventory;
 
 /**
@@ -20,7 +20,7 @@ public final class UnlimitedPatternProviderReturnInventory
     }
 
     static UnlimitedPatternProviderReturnInventory create(
-            Runnable listener, @Nullable AEKeySlotFilter filter) {
+            Runnable listener, @Nullable AEKeyFilter filter) {
         var inventory = new UnlimitedPatternProviderReturnInventory(listener);
         if (filter != null) {
             inventory.setFilter(filter);
@@ -30,7 +30,7 @@ public final class UnlimitedPatternProviderReturnInventory
 
     @Override
     public long insert(int slot, AEKey what, long amount, Actionable mode) {
-        if (what == null || amount <= 0 || !isAllowedIn(slot, what)) {
+        if (what == null || amount <= 0 || !isAllowed(what)) {
             return 0;
         }
         for (int i = 0; i < size(); i++) {

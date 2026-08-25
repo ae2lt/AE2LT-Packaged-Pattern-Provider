@@ -6,8 +6,6 @@ import org.jetbrains.annotations.Nullable;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.core.HolderLookup;
-import net.minecraft.core.component.DataComponentMap;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
@@ -19,12 +17,13 @@ import net.minecraft.world.level.block.state.BlockState;
 
 import appeng.api.stacks.AEItemKey;
 import appeng.api.networking.IGridNodeListener;
-import appeng.blockentity.grid.AENetworkedBlockEntity;
+import appeng.blockentity.grid.AENetworkBlockEntity;
 import appeng.helpers.patternprovider.PatternProviderLogic;
 import appeng.menu.ISubMenu;
 import appeng.menu.MenuOpener;
-import appeng.menu.locator.MenuHostLocator;
+import appeng.menu.locator.MenuLocator;
 import appeng.util.SettingsFrom;
+import appeng.api.inventories.InternalInventory;
 import appeng.util.inv.AppEngInternalInventory;
 import appeng.util.inv.InternalInventoryHost;
 
@@ -72,13 +71,13 @@ public class PackagedPatternProviderBlockEntity extends StablePatternProviderBlo
      */
     private final InternalInventoryHost adapterInvHost = new InternalInventoryHost() {
         @Override
-        public void saveChangedInventory(AppEngInternalInventory inv) {
-            saveChanges();
+        public void saveChanges() {
+            PackagedPatternProviderBlockEntity.this.saveChanges();
             markForUpdate();
         }
 
         @Override
-        public void onChangeInventory(AppEngInternalInventory inv, int slot) {
+        public void onChangeInventory(InternalInventory inv, int slot) {
             onAdapterInventoryChanged();
         }
 
@@ -146,7 +145,7 @@ public class PackagedPatternProviderBlockEntity extends StablePatternProviderBlo
     }
 
     @Override
-    public AENetworkedBlockEntity getFrequencyBindingBlockEntity() {
+    public AENetworkBlockEntity getFrequencyBindingBlockEntity() {
         return this;
     }
 
@@ -252,12 +251,12 @@ public class PackagedPatternProviderBlockEntity extends StablePatternProviderBlo
     }
 
     @Override
-    public void loadTag(CompoundTag data, HolderLookup.Provider registries) {
-        super.loadTag(data, registries);
+    public void loadTag(CompoundTag data) {
+        super.loadTag(data);
         frequencyBinding.load(data);
         sanitizePackagedModes();
         if (data.contains(TAG_ADAPTER_INV)) {
-            adapterInv.readFromNBT(data, TAG_ADAPTER_INV, registries);
+            adapterInv.readFromNBT(data, TAG_ADAPTER_INV);
         }
         adapterFlags.clear();
         if (data.contains(TAG_ADAPTER_FLAGS, Tag.TAG_COMPOUND)) {
@@ -277,10 +276,10 @@ public class PackagedPatternProviderBlockEntity extends StablePatternProviderBlo
     }
 
     @Override
-    public void saveAdditional(CompoundTag data, HolderLookup.Provider registries) {
-        super.saveAdditional(data, registries);
+    public void saveAdditional(CompoundTag data) {
+        super.saveAdditional(data);
         frequencyBinding.save(data);
-        adapterInv.writeToNBT(data, TAG_ADAPTER_INV, registries);
+        adapterInv.writeToNBT(data, TAG_ADAPTER_INV);
         if (!adapterFlags.isEmpty()) {
             var flagsTag = new CompoundTag();
             for (var entry : adapterFlags.entrySet()) {
@@ -344,15 +343,15 @@ public class PackagedPatternProviderBlockEntity extends StablePatternProviderBlo
     @Override
     public void exportSettings(
             SettingsFrom mode,
-            DataComponentMap.Builder builder,
+            CompoundTag output,
             @Nullable Player player) {
-        super.exportSettings(mode, builder, player);
+        super.exportSettings(mode, output, player);
         frequencyBinding.exportMemorySettings(
-                mode, builder, this::writeStableMemoryCardSettings);
+                mode, output, this::writeStableMemoryCardSettings);
     }
 
     @Override
-    public void importSettings(SettingsFrom mode, DataComponentMap input, @Nullable Player player) {
+    public void importSettings(SettingsFrom mode, CompoundTag input, @Nullable Player player) {
         super.importSettings(mode, input, player);
         frequencyBinding.importMemorySettings(
                 mode, input, this::readStableMemoryCardSettings);
@@ -382,7 +381,7 @@ public class PackagedPatternProviderBlockEntity extends StablePatternProviderBlo
     }
 
     @Override
-    public void openMenu(Player player, MenuHostLocator locator) {
+    public void openMenu(Player player, MenuLocator locator) {
         if (level instanceof ServerLevel) {
             clearInvalidConnections();
         }

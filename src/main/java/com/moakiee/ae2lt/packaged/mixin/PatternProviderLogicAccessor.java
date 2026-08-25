@@ -16,31 +16,34 @@ import appeng.util.inv.AppEngInternalInventory;
 
 /**
  * The single AE2-private bridge owned by PP's provider implementation.
+ *
+ * <p>Every member targeted here belongs to AE2, not to Minecraft, so all
+ * accessors and invokers opt out of SRG remapping.
  */
 @Mixin(PatternProviderLogic.class)
 public interface PatternProviderLogicAccessor {
-    @Invoker("onPushPatternSuccess")
+    @Invoker(value = "onPushPatternSuccess", remap = false)
     void ae2ltpp$onPushPatternSuccess(IPatternDetails pattern);
 
-    @Invoker("doWork")
+    @Invoker(value = "doWork", remap = false)
     boolean ae2ltpp$doWork();
 
-    @Invoker("hasWorkToDo")
+    @Invoker(value = "hasWorkToDo", remap = false)
     boolean ae2ltpp$hasWorkToDo();
 
-    @Accessor("patternInventory")
+    @Accessor(value = "patternInventory", remap = false)
     AppEngInternalInventory ae2ltpp$getPatternInventory();
 
     @Mutable
-    @Accessor("returnInv")
+    @Accessor(value = "returnInv", remap = false)
     void ae2ltpp$setReturnInventory(PatternProviderReturnInventory inventory);
 
-    @Accessor("patterns")
+    @Accessor(value = "patterns", remap = false)
     List<IPatternDetails> ae2ltpp$getPatterns();
 
-    @Accessor("patternInputs")
+    @Accessor(value = "patternInputs", remap = false)
     Set<AEKey> ae2ltpp$getPatternInputs();
 
-    @Accessor("unlockStack")
+    @Accessor(value = "unlockStack", remap = false)
     void ae2ltpp$setUnlockStack(appeng.api.stacks.GenericStack unlockStack);
 }
