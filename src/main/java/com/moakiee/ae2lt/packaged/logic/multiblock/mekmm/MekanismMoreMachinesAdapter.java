@@ -18,6 +18,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
 
 import com.moakiee.ae2lt.packaged.logic.multiblock.BlockCapabilities;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterBlocks;
 import net.minecraftforge.fluids.FluidStack;
 import net.minecraftforge.fluids.capability.IFluidHandler;
 import net.minecraftforge.items.IItemHandler;
@@ -89,7 +90,7 @@ public final class MekanismMoreMachinesAdapter implements MultiblockAdapter {
             mainBe = level.getBlockEntity(mainPos);
             if (mainBe == null) return null;
         }
-        ResourceLocation blockId = BuiltInRegistries.BLOCK.getKey(mainBe.getBlockState().getBlock());
+        ResourceLocation blockId = AdapterBlocks.idOf(mainBe.getBlockState().getBlock());
         for (MekmmMachineSpec spec : MekmmMachines.ALL) {
             if (spec.block().equals(blockId)
                     && MekReflection.isTileEntityClass(mainBe, spec.tileClass())) {

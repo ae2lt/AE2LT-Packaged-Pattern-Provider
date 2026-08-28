@@ -1,6 +1,5 @@
 package com.moakiee.ae2lt.packaged.logic.multiblock.avaritia;
 
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -18,6 +17,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.Container;
+import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraftforge.fml.ModList;
@@ -32,6 +32,7 @@ import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
 import com.moakiee.ae2lt.packaged.patternprovider.OverloadPatternSemantics;
 import com.moakiee.ae2lt.packaged.item.AdapterIds;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchPlan;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterBlocks;
 import com.moakiee.ae2lt.packaged.logic.multiblock.VirtualCraftingAdapter;
 import com.moakiee.ae2lt.packaged.logic.multiblock.VirtualCraftingResult;
 import com.moakiee.ae2lt.packaged.logic.multiblock.binding.BindingMode;
@@ -55,7 +56,7 @@ public final class AvaritiaExtremeSmithingAdapter implements VirtualCraftingAdap
     public boolean recognizesMain(ServerLevel level, net.minecraft.core.BlockPos pos,
                                   @Nullable BlockEntity be) {
         return isAvaritiaLoaded()
-                && BuiltInRegistries.BLOCK.getKey(level.getBlockState(pos).getBlock())
+                && AdapterBlocks.idOf(level.getBlockState(pos).getBlock())
                 .equals(EXTREME_SMITHING_BLOCK);
     }
 
@@ -183,8 +184,7 @@ public final class AvaritiaExtremeSmithingAdapter implements VirtualCraftingAdap
 
         boolean overload = OverloadPatternSemantics.isIdOnlyOutput(pattern, 0);
 
-        for (var holder : recipes(level)) {
-            var recipe = holder;
+        for (var recipe : recipes(level)) {
             var resultPreview = resultItem(recipe, level);
             if (resultPreview == null || resultPreview.isEmpty()) {
                 continue;
@@ -393,13 +393,12 @@ public final class AvaritiaExtremeSmithingAdapter implements VirtualCraftingAdap
     }
 
     private static final class AvaritiaSmithingReflection {
+        private static final org.slf4j.Logger LOG =
+                org.slf4j.LoggerFactory.getLogger(AvaritiaSmithingReflection.class);
         private static final String RECIPE_CLASS =
                 "committee.nova.mods.avaritia.common.crafting.recipe.ExtremeSmithingRecipe";
-        private static final String INPUT_CLASS =
-                "committee.nova.mods.avaritia.common.crafting.input.ExtremeSmithingRecipeInput";
 
         private static volatile boolean lookupDone;
-        private static volatile @Nullable Constructor<?> inputConstructor;
         private static volatile @Nullable Field templateField;
         private static volatile @Nullable Field baseField;
         private static volatile @Nullable Field additionsField;
@@ -407,23 +406,19 @@ public final class AvaritiaExtremeSmithingAdapter implements VirtualCraftingAdap
         private static volatile @Nullable Method isBaseIngredientMethod;
         private static volatile @Nullable Method isAdditionIngredientMethod;
 
-        @Nullable
+        /**
+         * 1.20.1 has no {@code ExtremeSmithingRecipeInput} (a 1.20.5+ class);
+         * the recipe reads slots 0=template, 1=base, 2..4=additions from any
+         * {@code Container}, so a plain {@link SimpleContainer} works.
+         */
         static Container createInput(SmithingMatch match) {
-            ensureLookup();
-            if (inputConstructor == null) {
-                return null;
-            }
-            try {
-                var value = inputConstructor.newInstance(
-                        match.template().copy(),
-                        match.base().copy(),
-                        match.additions().get(0).copy(),
-                        match.additions().get(1).copy(),
-                        match.additions().get(2).copy());
-                return value instanceof Container input ? input : null;
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
-                return null;
-            }
+            var container = new SimpleContainer(5);
+            container.setItem(0, match.template().copy());
+            container.setItem(1, match.base().copy());
+            container.setItem(2, match.additions().get(0).copy());
+            container.setItem(3, match.additions().get(1).copy());
+            container.setItem(4, match.additions().get(2).copy());
+            return container;
         }
 
         static boolean matchesTemplate(Object recipe, ItemStack stack) {
@@ -500,27 +495,23 @@ public final class AvaritiaExtremeSmithingAdapter implements VirtualCraftingAdap
                 if (lookupDone) {
                     return;
                 }
-                try {
-                    doLookup();
-                } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
-                } finally {
-                    lookupDone = true;
-                }
+                doLookup();
+                lookupDone = true;
             }
         }
 
-        private static void doLookup() throws ReflectiveOperationException {
-            var recipeClass = Class.forName(RECIPE_CLASS);
-            templateField = recipeClass.getField("template");
-            baseField = recipeClass.getField("base");
-            additionsField = recipeClass.getField("additions");
-            isTemplateIngredientMethod = recipeClass.getMethod("isTemplateIngredient", ItemStack.class);
-            isBaseIngredientMethod = recipeClass.getMethod("isBaseIngredient", ItemStack.class);
-            isAdditionIngredientMethod = recipeClass.getMethod("isAdditionIngredient", ItemStack.class);
-
-            var inputClass = Class.forName(INPUT_CLASS);
-            inputConstructor = inputClass.getConstructor(
-                    ItemStack.class, ItemStack.class, ItemStack.class, ItemStack.class, ItemStack.class);
+        private static void doLookup() {
+            try {
+                var recipeClass = Class.forName(RECIPE_CLASS);
+                templateField = recipeClass.getField("template");
+                baseField = recipeClass.getField("base");
+                additionsField = recipeClass.getField("additions");
+                isTemplateIngredientMethod = recipeClass.getMethod("isTemplateIngredient", ItemStack.class);
+                isBaseIngredientMethod = recipeClass.getMethod("isBaseIngredient", ItemStack.class);
+                isAdditionIngredientMethod = recipeClass.getMethod("isAdditionIngredient", ItemStack.class);
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+                LOG.warn("[ae2ltpp] Avaritia ExtremeSmithingRecipe member lookup failed: {}", e.toString());
+            }
         }
     }
 }

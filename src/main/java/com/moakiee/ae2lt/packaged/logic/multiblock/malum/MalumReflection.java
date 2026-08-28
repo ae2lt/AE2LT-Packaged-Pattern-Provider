@@ -39,7 +39,8 @@ final class MalumReflection {
     private static final String FOCUSING_RECIPE_CLASS =
             "com.sammy.malum.common.recipe.SpiritFocusingRecipe";
     private static final String SPIRIT_INGREDIENT_CLASS =
-            "com.sammy.malum.core.systems.recipe.SpiritIngredient";
+            // 1.21 renamed this to SpiritIngredient; 1.20.1 ships SpiritWithCount.
+            "com.sammy.malum.core.systems.recipe.SpiritWithCount";
 
     private static volatile boolean lookupDone;
     private static volatile @Nullable Class<?> altarClass;
@@ -63,6 +64,7 @@ final class MalumReflection {
     private static volatile @Nullable Field infusionInputField;
     private static volatile @Nullable Field infusionSpiritsField;
     private static volatile @Nullable Field infusionExtrasField;
+    private static volatile @Nullable Field infusionOutputField;
     private static volatile @Nullable Field focusingInputField;
     private static volatile @Nullable Field focusingSpiritsField;
     private static volatile @Nullable Field focusingOutputField;
@@ -387,8 +389,10 @@ final class MalumReflection {
             var value = infusionGetOutputMethod.invoke(recipe, level, input);
             return value instanceof ItemStack stack ? stack.copy() : null;
         } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
-            return null;
+            // fall through to the output field (1.20.1 has no getOutput method)
         }
+        var value = fieldValue(infusionOutputField, recipe);
+        return value instanceof ItemStack stack ? stack.copy() : null;
     }
 
     @Nullable
@@ -580,6 +584,8 @@ final class MalumReflection {
     }
 
     private static void doLookup() throws ReflectiveOperationException {
+        // Critical class handles: without these the adapters cannot exist at
+        // all, so failures keep aborting the rest of the lookup.
         altarClass = requiredClass(ALTAR_CLASSES);
         crucibleClass = requiredClass(CRUCIBLE_CLASSES);
         accessPointClass = requiredClass(ACCESS_POINT_CLASS);
@@ -588,34 +594,81 @@ final class MalumReflection {
         spiritIngredientClass = requiredClass(SPIRIT_INGREDIENT_CLASS);
         var altarHelperClass = requiredClass(ALTAR_HELPER_CLASSES);
 
-        altarInventoryField = field(altarClass, "inventory");
-        altarSpiritInventoryField = field(altarClass, "spiritInventory");
-        altarExtrasInventoryField = field(altarClass, "extrasInventory");
-        altarRecipeField = field(altarClass, "recipe");
-        altarCraftingField = field(altarClass, "isCrafting");
-        altarProgressField = field(altarClass, "progress");
-        crucibleInventoryField = field(crucibleClass, "inventory");
-        crucibleSpiritInventoryField = field(crucibleClass, "spiritInventory");
-        crucibleRecipeField = field(crucibleClass, "recipe");
-        crucibleCraftingField = field(crucibleClass, "isCrafting");
-        crucibleProgressField = field(crucibleClass, "progress");
-        infusionInputField = field(infusionRecipeClass, "input");
-        infusionSpiritsField = field(infusionRecipeClass, "spirits");
-        infusionExtrasField = field(infusionRecipeClass, "extraInputs");
-        focusingInputField = field(focusingRecipeClass, "input");
-        focusingSpiritsField = field(focusingRecipeClass, "spirits");
-        focusingOutputField = field(focusingRecipeClass, "output");
+        // Everything below is optional per mod version (1.20.1 lacks several
+        // 1.21 members); each resolution must not be able to disable the rest.
+        altarInventoryField = fieldQuietly(altarClass, "inventory");
+        altarSpiritInventoryField = fieldQuietly(altarClass, "spiritInventory");
+        altarExtrasInventoryField = fieldQuietly(altarClass, "extrasInventory");
+        altarRecipeField = fieldQuietly(altarClass, "recipe");
+        altarCraftingField = fieldQuietly(altarClass, "isCrafting");
+        altarProgressField = fieldQuietly(altarClass, "progress");
+        crucibleInventoryField = fieldQuietly(crucibleClass, "inventory");
+        crucibleSpiritInventoryField = fieldQuietly(crucibleClass, "spiritInventory");
+        crucibleRecipeField = fieldQuietly(crucibleClass, "recipe");
+        crucibleCraftingField = fieldQuietly(crucibleClass, "isCrafting");
+        crucibleProgressField = fieldQuietly(crucibleClass, "progress");
+        infusionInputField = fieldQuietly(infusionRecipeClass, "input");
+        infusionSpiritsField = fieldInHierarchy(infusionRecipeClass, "spirits");
+        infusionExtrasField = fieldQuietly(infusionRecipeClass, "extraItems");
+        if (infusionExtrasField == null) {
+            infusionExtrasField = fieldInHierarchy(infusionRecipeClass, "extraInputs");
+        }
+        focusingInputField = fieldQuietly(focusingRecipeClass, "input");
+        focusingSpiritsField = fieldInHierarchy(focusingRecipeClass, "spirits");
+        focusingOutputField = fieldQuietly(focusingRecipeClass, "output");
+        infusionOutputField = fieldQuietly(infusionRecipeClass, "output");
 
-        altarRecalculateMethod = method(altarClass, "recalculateRecipes");
-        crucibleUpdateMethod = method(crucibleClass, "updateRecipe");
-        capturePedestalsMethod = requiredMethod(altarHelperClass, "capturePedestals", Level.class, BlockPos.class);
-        getSuppliedInventoryMethod = requiredMethod(accessPointClass, "getSuppliedInventory");
-        getAccessPointBlockPosMethod = requiredMethod(accessPointClass, "getAccessPointBlockPos");
-        infusionGetOutputMethod = requiredMethod(infusionRecipeClass, "getOutput", ServerLevel.class, ItemStack.class);
-        spiritAsItemStackMethod = requiredMethod(spiritIngredientClass, "asItemStack");
+        altarRecalculateMethod = methodQuietly(altarClass, "recalculateRecipes");
+        crucibleUpdateMethod = methodQuietly(crucibleClass, "updateRecipe");
+        capturePedestalsMethod = methodQuietly(altarHelperClass, "capturePedestals",
+                Level.class, BlockPos.class);
+        getSuppliedInventoryMethod = methodQuietly(accessPointClass, "getSuppliedInventory");
+        getAccessPointBlockPosMethod = methodQuietly(accessPointClass, "getAccessPointBlockPos");
+        infusionGetOutputMethod = methodQuietly(infusionRecipeClass, "getOutput",
+                ServerLevel.class, ItemStack.class);
+        spiritAsItemStackMethod = methodQuietly(spiritIngredientClass, "getStack");
         focusingGetInputMethod = ReflectionSupport.findMethodCached(focusingRecipeClass, "getInput").orElse(null);
         focusingGetSpiritsMethod = ReflectionSupport.findMethodCached(focusingRecipeClass, "getSpirits").orElse(null);
         focusingCreateOutputMethod = ReflectionSupport.findMethodCached(focusingRecipeClass, "createOutput").orElse(null);
+    }
+
+    @Nullable
+    private static Field fieldQuietly(@Nullable Class<?> type, String name) {
+        if (type == null) {
+            return null;
+        }
+        try {
+            return field(type, name);
+        } catch (NoSuchFieldException | RuntimeException | LinkageError ignored) {
+            return null;
+        }
+    }
+
+    /** getDeclaredField fallback that walks superclasses (1.20.1 declares
+     *  {@code spirits} on the abstract base recipe). */
+    @Nullable
+    private static Field fieldInHierarchy(@Nullable Class<?> type, String name) {
+        var current = type;
+        while (current != null) {
+            var f = fieldQuietly(current, name);
+            if (f != null) {
+                return f;
+            }
+            current = current.getSuperclass();
+        }
+        return null;
+    }
+
+    @Nullable
+    private static Method methodQuietly(@Nullable Class<?> type, String name, Class<?>... parameterTypes) {
+        if (type == null) {
+            return null;
+        }
+        try {
+            return method(type, name, parameterTypes);
+        } catch (NoSuchMethodException | RuntimeException | LinkageError ignored) {
+            return null;
+        }
     }
 
     private static Field field(Class<?> type, String name) throws NoSuchFieldException {

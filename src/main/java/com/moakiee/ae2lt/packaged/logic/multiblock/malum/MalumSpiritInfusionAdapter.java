@@ -30,6 +30,7 @@ import appeng.api.stacks.KeyCounter;
 
 import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchPlan;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterBlocks;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DroppedItemDispatch;
 import com.moakiee.ae2lt.packaged.logic.multiblock.InsertionStrategy;
 import com.moakiee.ae2lt.packaged.logic.multiblock.MultiblockAdapter;
@@ -265,8 +266,7 @@ public final class MalumSpiritInfusionAdapter implements MultiblockAdapter {
 
     private static List<Object> findCandidateRecipes(ServerLevel level) {
         var matches = new ArrayList<Object>();
-        for (var holder : recipes(level)) {
-            var recipe = holder;
+        for (var recipe : recipes(level)) {
             var mainInput = MalumReflection.infusionInput(recipe);
             var spiritStacks = MalumReflection.infusionSpirits(recipe);
             var extraInputs = MalumReflection.infusionExtras(recipe);
@@ -534,9 +534,7 @@ public final class MalumSpiritInfusionAdapter implements MultiblockAdapter {
         }
     }
 
-    private static ResourceLocation blockId(BlockState state) {
-        return BuiltInRegistries.BLOCK.getKey(state.getBlock());
-    }
+    private static ResourceLocation blockId(BlockState state) { return AdapterBlocks.idOf(state); }
 
     private static ResourceLocation malumId(String path) {
         return new ResourceLocation(MOD_ID, path);

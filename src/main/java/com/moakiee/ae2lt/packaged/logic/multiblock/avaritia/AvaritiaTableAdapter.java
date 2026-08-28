@@ -5,7 +5,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -15,6 +14,8 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.TransientCraftingContainer;
 import net.minecraft.world.inventory.CraftingContainer;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
@@ -35,6 +36,7 @@ import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
 import com.moakiee.ae2lt.packaged.patternprovider.OverloadPatternSemantics;
 import com.moakiee.ae2lt.packaged.item.AdapterIds;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchPlan;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterBlocks;
 import com.moakiee.ae2lt.packaged.logic.multiblock.VirtualCraftingAdapter;
 import com.moakiee.ae2lt.packaged.logic.multiblock.VirtualCraftingResult;
 import com.moakiee.ae2lt.packaged.logic.multiblock.binding.BindingMode;
@@ -172,8 +174,7 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
             return null;
         }
 
-        var input = AvaritiaReflection.createTierInput(
-                spec.gridSize(), stacksForPlan(spec.slots(), planned), spec.tier());
+        var input = AvaritiaReflection.createGridInput(spec.gridSize(), stacksForPlan(spec.slots(), planned));
         if (input == null || !recipeMatches(bind.recipe(), input, level)) {
             return null;
         }
@@ -218,8 +219,7 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
             return List.of();
         }
 
-        var input = AvaritiaReflection.createTierInput(
-                spec.gridSize(), currentStacks(handler, spec.slots()), spec.tier());
+        var input = AvaritiaReflection.createGridInput(spec.gridSize(), currentStacks(handler, spec.slots()));
         if (input == null) {
             return List.of();
         }
@@ -290,8 +290,7 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
 
         boolean overload = OverloadPatternSemantics.isIdOnlyOutput(pattern, 0);
 
-        for (var holder : recipes(level)) {
-            var recipe = holder;
+        for (var recipe : recipes(level)) {
             if (!tableCanCraftRecipe(spec, recipe)) {
                 continue;
             }
@@ -481,8 +480,7 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
 
     @Nullable
     private static Object findMatchingRecipe(ServerLevel level, CraftingContainer input) {
-        for (var holder : recipes(level)) {
-            var recipe = holder;
+        for (var recipe : recipes(level)) {
             if (recipeMatches(recipe, input, level)) {
                 return recipe;
             }
@@ -495,8 +493,10 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
         if (remaining.size() < input.getContainerSize()) {
             return false;
         }
-        int top = AvaritiaReflection.top(input);
-        int left = AvaritiaReflection.left(input);
+        // The grid input spans the whole table (size == gridSize), so the
+        // 1.21 TierInput sub-grid offset is always zero here.
+        int top = 0;
+        int left = 0;
         for (int y = 0; y < input.getHeight(); y++) {
             for (int x = 0; x < input.getWidth(); x++) {
                 int inputIndex = x + y * input.getWidth();
@@ -529,8 +529,8 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
     private static void applyCraftRemainders(IItemHandlerModifiable handler, int gridSize,
                                              CraftingContainer input,
                                              NonNullList<ItemStack> remaining) {
-        int top = AvaritiaReflection.top(input);
-        int left = AvaritiaReflection.left(input);
+        int top = 0;
+        int left = 0;
         for (int y = 0; y < input.getHeight(); y++) {
             for (int x = 0; x < input.getWidth(); x++) {
                 int inputIndex = x + y * input.getWidth();
@@ -661,12 +661,30 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
         }
     }
 
+    // Cached at class-load: the recipe type registry entry is immutable for the
+    // JVM's lifetime, and Avaritia's machine class is part of the registry, so
+    // the RecipeType reference is stable from first FMLCommonSetupEvent onward.
+    // (We resolve lazily because Avaritia's recipe type may not be registered
+    // until its mod loads; the cache is built on first lookup.)
+    private static volatile RecipeType<?> cachedRecipeType;
+    private static volatile boolean recipeTypeLookupDone;
+
     @SuppressWarnings({"rawtypes", "unchecked"})
     private static List<Recipe<?>> recipes(ServerLevel level) {
-        return BuiltInRegistries.RECIPE_TYPE.getOptional(RECIPE_TYPE_ID)
-                .map(type -> (List<Recipe<?>>) (List<?>) level.getRecipeManager()
-                        .getAllRecipesFor((RecipeType) type))
-                .orElse(List.of());
+        var type = cachedRecipeType;
+        if (!recipeTypeLookupDone) {
+            synchronized (AvaritiaTableAdapter.class) {
+                if (!recipeTypeLookupDone) {
+                    type = BuiltInRegistries.RECIPE_TYPE.getOptional(RECIPE_TYPE_ID).orElse(null);
+                    cachedRecipeType = type;
+                    recipeTypeLookupDone = true;
+                }
+            }
+        }
+        if (type == null) {
+            return List.of();
+        }
+        return (List<Recipe<?>>) (List<?>) level.getRecipeManager().getAllRecipesFor((RecipeType) type);
     }
 
     @Nullable
@@ -691,9 +709,7 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
         return ModList.get().isLoaded(MOD_ID);
     }
 
-    private static ResourceLocation blockId(BlockState state) {
-        return BuiltInRegistries.BLOCK.getKey(state.getBlock());
-    }
+    private static ResourceLocation blockId(BlockState state) { return AdapterBlocks.idOf(state); }
 
     private static ResourceLocation avaritiaId(String path) {
         return new ResourceLocation(MOD_ID, path);
@@ -719,23 +735,42 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
     }
 
     private static final class AvaritiaReflection {
+        private static final org.slf4j.Logger LOG =
+                org.slf4j.LoggerFactory.getLogger(AvaritiaReflection.class);
         private static final String TABLE_CLASS =
                 "committee.nova.mods.avaritia.common.tile.TierCraftTile";
         private static final String BASE_INVENTORY_CLASS =
                 "committee.nova.mods.avaritia.api.common.tile.BaseInventoryTileEntity";
-        private static final String TIER_INPUT_CLASS =
-                "committee.nova.mods.avaritia.api.common.crafting.TierInput";
         private static final String SHAPED_RECIPE_CLASS =
                 "committee.nova.mods.avaritia.common.crafting.recipe.ShapedTableCraftingRecipe";
+        // Re-Avaritia moved this interface between releases: 1.20.1 ships it in
+        // common.crafting.recipe, older builds in api.common.crafting (as
+        // ITierRecipe). Both declare getTier()/hasRequiredTier().
         private static final String TIER_RECIPE_CLASS =
-                "committee.nova.mods.avaritia.api.common.crafting.ITierCraftingRecipe";
+                "committee.nova.mods.avaritia.common.crafting.recipe.ITierCraftingRecipe";
+        private static final String TIER_RECIPE_API_CLASS =
+                "committee.nova.mods.avaritia.api.common.crafting.ITierRecipe";
+
+        /**
+         * Menu shell for offline grid containers: {@link CraftingContainer}
+         * calls back into {@code slotsChanged} on every write, which is a
+         * no-op on the vanilla base class.
+         */
+        private static final AbstractContainerMenu NOOP_MENU = new AbstractContainerMenu(null, 0) {
+            @Override
+            public ItemStack quickMoveStack(net.minecraft.world.entity.player.Player player, int index) {
+                return ItemStack.EMPTY;
+            }
+
+            @Override
+            public boolean stillValid(net.minecraft.world.entity.player.Player player) {
+                return true;
+            }
+        };
 
         private static volatile boolean lookupDone;
         private static volatile @Nullable Class<?> tableClass;
         private static volatile @Nullable Method getInventoryMethod;
-        private static volatile @Nullable Method tierInputOfMethod;
-        private static volatile @Nullable Method tierInputTopMethod;
-        private static volatile @Nullable Method tierInputLeftMethod;
         private static volatile @Nullable Method shapedRecipeWidthMethod;
         private static volatile @Nullable Method recipeTierMethod;
         private static volatile @Nullable Method recipeHasRequiredTierMethod;
@@ -753,49 +788,39 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
             }
             try {
                 var value = getInventoryMethod.invoke(be);
+                // 1.20.1: getInventory() returns ItemStackWrapper, which
+                // extends ItemStackHandler and therefore IS an IItemHandler.
                 return value instanceof IItemHandler handler ? handler : null;
             } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
                 return null;
             }
         }
 
+        /**
+         * Builds the craft grid directly instead of going through the 1.21
+         * {@code TierInput} API, which does not exist on 1.20.1. The table
+         * recipes accept any {@code Container} ({@code ISpecialRecipe} wraps
+         * it in an {@code InvWrapper}) and derive the tier themselves from
+         * the slot count, so a full square grid reproduces the real table
+         * exactly.
+         */
         @Nullable
-        static CraftingContainer createTierInput(int size, List<ItemStack> stacks, int tier) {
+        static CraftingContainer createGridInput(int size, List<ItemStack> stacks) {
             ensureLookup();
-            if (tierInputOfMethod == null) {
+            if (tableClass == null || stacks.size() != size * size) {
                 return null;
             }
             try {
-                var value = tierInputOfMethod.invoke(null, size, size, stacks, tier);
-                return value instanceof CraftingContainer input ? input : null;
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+                // CraftingContainer is an interface on 1.20.1; this is its
+                // concrete vanilla implementation.
+                var container = new TransientCraftingContainer(NOOP_MENU, size, size);
+                for (int i = 0; i < container.getContainerSize(); i++) {
+                    container.setItem(i, stacks.get(i).copy());
+                }
+                return container;
+            } catch (RuntimeException | LinkageError e) {
+                LOG.warn("[ae2ltpp] Failed to build Avaritia table grid input: {}", e.toString());
                 return null;
-            }
-        }
-
-        static int top(CraftingContainer input) {
-            ensureLookup();
-            if (tierInputTopMethod == null) {
-                return 0;
-            }
-            try {
-                var value = tierInputTopMethod.invoke(input);
-                return value instanceof Integer i ? i : 0;
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
-                return 0;
-            }
-        }
-
-        static int left(CraftingContainer input) {
-            ensureLookup();
-            if (tierInputLeftMethod == null) {
-                return 0;
-            }
-            try {
-                var value = tierInputLeftMethod.invoke(input);
-                return value instanceof Integer i ? i : 0;
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
-                return 0;
             }
         }
 
@@ -852,32 +877,43 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
                 if (lookupDone) {
                     return;
                 }
-                try {
-                    doLookup();
-                } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
-                } finally {
-                    lookupDone = true;
-                }
+                // Per-member resolution: one drifted name must not disable
+                // the whole adapter (the pre-1.20 single try-block did).
+                doLookup();
+                lookupDone = true;
             }
         }
 
-        private static void doLookup() throws ReflectiveOperationException {
-            tableClass = Class.forName(TABLE_CLASS);
+        private static void doLookup() {
+            try {
+                tableClass = Class.forName(TABLE_CLASS);
+            } catch (ClassNotFoundException | RuntimeException | LinkageError e) {
+                LOG.warn("[ae2ltpp] Avaritia table tile {} not found: {}", TABLE_CLASS, e.toString());
+            }
 
-            var baseInventoryClass = Class.forName(BASE_INVENTORY_CLASS);
-            getInventoryMethod = baseInventoryClass.getMethod("getInventory");
+            try {
+                var baseInventoryClass = Class.forName(BASE_INVENTORY_CLASS);
+                getInventoryMethod = baseInventoryClass.getMethod("getInventory");
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+                LOG.warn("[ae2ltpp] Avaritia BaseInventoryTileEntity#getInventory lookup failed: {}", e.toString());
+            }
 
-            var tierInputClass = Class.forName(TIER_INPUT_CLASS);
-            tierInputOfMethod = tierInputClass.getMethod("of", int.class, int.class, List.class, int.class);
-            tierInputTopMethod = tierInputClass.getMethod("top");
-            tierInputLeftMethod = tierInputClass.getMethod("left");
+            try {
+                shapedRecipeWidthMethod = Class.forName(SHAPED_RECIPE_CLASS).getMethod("getWidth");
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+                LOG.warn("[ae2ltpp] Avaritia ShapedTableCraftingRecipe#getWidth lookup failed: {}", e.toString());
+            }
 
-            var shapedRecipeClass = Class.forName(SHAPED_RECIPE_CLASS);
-            shapedRecipeWidthMethod = shapedRecipeClass.getMethod("getWidth");
-
-            var tierRecipeClass = Class.forName(TIER_RECIPE_CLASS);
-            recipeTierMethod = tierRecipeClass.getMethod("getTier");
-            recipeHasRequiredTierMethod = tierRecipeClass.getMethod("hasRequiredTier");
+            for (String candidate : new String[] {TIER_RECIPE_CLASS, TIER_RECIPE_API_CLASS}) {
+                try {
+                    var tierRecipeClass = Class.forName(candidate);
+                    recipeTierMethod = tierRecipeClass.getMethod("getTier");
+                    recipeHasRequiredTierMethod = tierRecipeClass.getMethod("hasRequiredTier");
+                    break;
+                } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+                    LOG.warn("[ae2ltpp] Avaritia tier recipe interface {} unavailable: {}", candidate, e.toString());
+                }
+            }
         }
     }
 }

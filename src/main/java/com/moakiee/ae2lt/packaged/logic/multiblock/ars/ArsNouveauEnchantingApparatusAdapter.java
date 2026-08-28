@@ -1,16 +1,17 @@
 package com.moakiee.ae2lt.packaged.logic.multiblock.ars;
 
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.BiFunction;
 
 import org.jetbrains.annotations.Nullable;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
+import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
@@ -18,12 +19,10 @@ import net.minecraft.world.Container;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Recipe;
-import net.minecraft.world.Container;
 import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraftforge.fml.ModList;
 
 import appeng.api.config.Actionable;
@@ -35,6 +34,7 @@ import appeng.api.stacks.KeyCounter;
 
 import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchPlan;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterBlocks;
 import com.moakiee.ae2lt.packaged.logic.multiblock.InsertionStrategy;
 import com.moakiee.ae2lt.packaged.logic.multiblock.MultiblockAdapter;
 import com.moakiee.ae2lt.packaged.logic.multiblock.ReflectionSupport;
@@ -55,7 +55,6 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
     private static final ResourceLocation APPARATUS_BLOCK = arsId("enchanting_apparatus");
     private static final ResourceLocation PEDESTAL_BLOCK = arsId("arcane_pedestal");
     private static final ResourceLocation ARCANE_PLATFORM_BLOCK = arsId("arcane_platform");
-    private static final ResourceLocation ARCANE_CORE_BLOCK = arsId("arcane_core");
     private static final int PEDESTAL_RADIUS = 3;
     private static final int SOURCE_RADIUS = 10;
     private static final int MAX_INPUT_UNITS = 128;
@@ -110,7 +109,7 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
         if (be == null || !recognizesMain(level, mainPos, be) || !(be instanceof Container apparatus)) {
             return false;
         }
-        if (isCrafting(be) || !containerEmpty(apparatus) || !hasValidArcaneCore(level, mainPos)) {
+        if (isCrafting(be) || !containerEmpty(apparatus)) {
             return false;
         }
         return bind.candidates().stream()
@@ -211,8 +210,7 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
      */
     private ApparatusBindHandle findCandidateRecipes(ServerLevel level, IPatternDetails pattern) {
         var candidates = new ArrayList<RecipeCandidate>();
-        for (var holder : recipes(level)) {
-            var recipe = holder;
+        for (var recipe : recipes(level)) {
             var result = resultItem(recipe, level);
             if (result.isEmpty() || !outputMatches(pattern, result)) {
                 continue;
@@ -247,8 +245,7 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
             }
 
             if (recipe instanceof Recipe<?> typedRecipe) {
-                var input = ArsReflection.createApparatusInput(reagent.stack(), pedestalStacks);
-                if (input == null || !recipeMatches(typedRecipe, input, level)) {
+                if (!ArsReflection.matchesApparatusRecipe(rawRecipe(typedRecipe), pedestalStacks, reagent.stack())) {
                     continue;
                 }
             } else {
@@ -260,6 +257,10 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
     }
 
     private static ItemStack resultItem(Object recipe, ServerLevel level) {
+        var result = ArsReflection.recipeResult(recipe);
+        if (result != null && !result.isEmpty()) {
+            return result;
+        }
         if (!(recipe instanceof Recipe<?> typedRecipe)) {
             return ItemStack.EMPTY;
         }
@@ -299,7 +300,6 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
                     || !blockId(be.getBlockState()).equals(APPARATUS_BLOCK)
                     || isCrafting(be)
                     || !containerEmpty(apparatus)
-                    || !hasValidArcaneCore(level, pos)
                     || !hasSourceAvailable(level, pos, sourceCost)) {
                 return 0L;
             }
@@ -382,30 +382,28 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static boolean recipeMatches(Recipe<?> recipe, Container input, ServerLevel level) {
-        try {
-            return rawRecipe(recipe).matches(input, level);
-        } catch (RuntimeException | LinkageError ignored) {
-            return false;
-        }
-    }
-
-    @SuppressWarnings({"rawtypes", "unchecked"})
     private static Recipe rawRecipe(Recipe<?> recipe) {
         return (Recipe) recipe;
     }
 
     private static int sourceCost(Object recipe) {
-        try {
-            Method method = ReflectionSupport.findMethodCached(recipe.getClass(), "sourceCost").orElse(null);
+        // 1.20.x declares a {@code getSourceCost()} getter; other versions used
+        // a plain {@code sourceCost()} method.
+        for (String name : new String[] {"getSourceCost", "sourceCost"}) {
+            Method method = ReflectionSupport.findMethodCached(recipe.getClass(), name).orElse(null);
             if (method == null) {
+                continue;
+            }
+            try {
+                Object value = method.invoke(recipe);
+                if (value instanceof Number number) {
+                    return number.intValue();
+                }
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
                 return -1;
             }
-            Object value = method.invoke(recipe);
-            return value instanceof Number number ? number.intValue() : -1;
-        } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
-            return -1;
         }
+        return -1;
     }
 
     private static boolean outputMatches(IPatternDetails pattern, ItemStack result) {
@@ -441,27 +439,6 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
             }
         }
         return true;
-    }
-
-    private static boolean hasValidArcaneCore(ServerLevel level, BlockPos mainPos) {
-        var apparatusState = level.getBlockState(mainPos);
-        if (!apparatusState.hasProperty(BlockStateProperties.FACING)) {
-            return false;
-        }
-
-        var apparatusFacing = apparatusState.getValue(BlockStateProperties.FACING);
-        var corePos = mainPos.relative(apparatusFacing.getOpposite());
-        if (!level.isLoaded(corePos)) {
-            return false;
-        }
-
-        var coreState = level.getBlockState(corePos);
-        if (!blockId(coreState).equals(ARCANE_CORE_BLOCK)
-                || !coreState.hasProperty(BlockStateProperties.FACING)) {
-            return false;
-        }
-
-        return coreState.getValue(BlockStateProperties.FACING).getAxis() == apparatusFacing.getAxis();
     }
 
     private static boolean isCrafting(BlockEntity be) {
@@ -500,9 +477,7 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
         return ModList.get().isLoaded(MOD_ID);
     }
 
-    private static ResourceLocation blockId(BlockState state) {
-        return BuiltInRegistries.BLOCK.getKey(state.getBlock());
-    }
+    private static ResourceLocation blockId(BlockState state) { return AdapterBlocks.idOf(state); }
 
     private static boolean isPedestalBlock(BlockState state) {
         var id = blockId(state);
@@ -541,31 +516,84 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
     }
 
     private static final class ArsReflection {
-        private static final String APPARATUS_INPUT_CLASS =
-                "com.hollingsworth.arsnouveau.common.crafting.recipes.ApparatusRecipeInput";
         private static final String API_CLASS = "com.hollingsworth.arsnouveau.api.ArsNouveauAPI";
         private static final String SOURCE_UTIL_CLASS = "com.hollingsworth.arsnouveau.api.util.SourceUtil";
 
-        private static volatile @Nullable Constructor<?> apparatusInputConstructor;
-        private static volatile boolean apparatusInputLookupDone;
+        private static final Map<Class<?>, Map<String, Method>> INSTANCE_METHODS = new HashMap<>();
+
         private static volatile @Nullable Method getInstanceMethod;
         private static volatile @Nullable Method getRecipesMethod;
         private static volatile boolean apiLookupDone;
         private static volatile @Nullable Method hasSourceNearbyMethod;
         private static volatile boolean sourceLookupDone;
 
+        /**
+         * Result of an {@code IEnchantingRecipe}. On 1.20.x the apparatus
+         * recipes return {@link Recipe#getResultItem(RegistryAccess)}
+         * unconditionally empty, so the interface's own
+         * {@code getResult(pedestalItems, reagent, tile)} hook must be used.
+         */
         @Nullable
-        static Container createApparatusInput(ItemStack reagent, List<ItemStack> pedestals) {
-            var constructor = apparatusInputConstructor();
-            if (constructor == null) {
+        static ItemStack recipeResult(Object recipe) {
+            var method = instanceMethod(recipe.getClass(), "getResult");
+            if (method == null) {
                 return null;
             }
             try {
-                Object input = constructor.newInstance(reagent.copy(), copyStacks(pedestals), null);
-                return input instanceof Container recipeInput ? recipeInput : null;
+                Object out = method.invoke(recipe, List.of(), ItemStack.EMPTY, null);
+                return out instanceof ItemStack stack ? stack.copy() : null;
             } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
                 return null;
             }
+        }
+
+        /** Apparatus match against explicit pedestal stacks plus the reagent stack. */
+        static boolean matchesApparatusRecipe(Object recipe, List<ItemStack> pedestals, ItemStack reagent) {
+            var method = instanceMethod(recipe.getClass(), "isMatch");
+            if (method == null) {
+                return false;
+            }
+            try {
+                Object out = method.invoke(recipe, copyStacks(pedestals), reagent.copy(), null, null);
+                return Boolean.TRUE.equals(out);
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+                return false;
+            }
+        }
+
+        /**
+         * Finds a zero-cost or low-shape hook by name: argument types moved
+         * between mod versions ({@code getSourceCost}/{@code sourceCost},
+         * varying trailing tile/player parameters), so resolution matches on
+         * declared parameter kinds instead of exact signatures.
+         */
+        @Nullable
+        private static synchronized Method instanceMethod(Class<?> recipeClass, String name) {
+            var perClass = INSTANCE_METHODS.get(recipeClass);
+            if (perClass != null && perClass.containsKey(name)) {
+                return perClass.get(name);
+            }
+            Method found = null;
+            for (var candidate : recipeClass.getMethods()) {
+                if (!candidate.getName().equals(name)) {
+                    continue;
+                }
+                var params = candidate.getParameterTypes();
+                if (name.equals("isMatch") && params.length == 4
+                        && List.class.isAssignableFrom(params[0])
+                        && ItemStack.class.isAssignableFrom(params[1])) {
+                    found = candidate;
+                    break;
+                }
+                if (name.equals("getResult") && params.length == 3
+                        && List.class.isAssignableFrom(params[0])
+                        && ItemStack.class.isAssignableFrom(params[1])) {
+                    found = candidate;
+                    break;
+                }
+            }
+            INSTANCE_METHODS.computeIfAbsent(recipeClass, k -> new HashMap<>()).put(name, found);
+            return found;
         }
 
         static List<Recipe<?>> getEnchantingApparatusRecipes(ServerLevel level) {
@@ -605,27 +633,6 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
                 return method != null && Boolean.TRUE.equals(method.invoke(null, pos, level, radius, cost));
             } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
                 return false;
-            }
-        }
-
-        @Nullable
-        private static Constructor<?> apparatusInputConstructor() {
-            if (apparatusInputLookupDone) {
-                return apparatusInputConstructor;
-            }
-            synchronized (ArsReflection.class) {
-                if (apparatusInputLookupDone) {
-                    return apparatusInputConstructor;
-                }
-                try {
-                    var clazz = Class.forName(APPARATUS_INPUT_CLASS);
-                    apparatusInputConstructor = clazz.getConstructor(ItemStack.class, List.class, Player.class);
-                } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
-                    apparatusInputConstructor = null;
-                } finally {
-                    apparatusInputLookupDone = true;
-                }
-                return apparatusInputConstructor;
             }
         }
 

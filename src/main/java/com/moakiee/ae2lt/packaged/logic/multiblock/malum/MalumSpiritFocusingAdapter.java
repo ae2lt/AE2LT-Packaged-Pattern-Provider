@@ -29,6 +29,7 @@ import appeng.api.stacks.KeyCounter;
 
 import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchPlan;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterBlocks;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DroppedItemDispatch;
 import com.moakiee.ae2lt.packaged.logic.multiblock.InsertionStrategy;
 import com.moakiee.ae2lt.packaged.logic.multiblock.MultiblockAdapter;
@@ -240,8 +241,7 @@ public final class MalumSpiritFocusingAdapter implements MultiblockAdapter {
 
     private static List<Object> findCandidateRecipes(ServerLevel level, IPatternDetails pattern) {
         var matches = new ArrayList<Object>();
-        for (var holder : recipes(level)) {
-            var recipe = holder;
+        for (var recipe : recipes(level)) {
             var output = MalumReflection.focusingOutput(recipe);
             if (output == null || output.isEmpty() || !MalumAdapterSupport.outputMatches(pattern, output)) {
                 continue;
@@ -372,9 +372,7 @@ public final class MalumSpiritFocusingAdapter implements MultiblockAdapter {
         }
     }
 
-    private static ResourceLocation blockId(BlockState state) {
-        return BuiltInRegistries.BLOCK.getKey(state.getBlock());
-    }
+    private static ResourceLocation blockId(BlockState state) { return AdapterBlocks.idOf(state); }
 
     private static ResourceLocation malumId(String path) {
         return new ResourceLocation(MOD_ID, path);

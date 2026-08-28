@@ -279,24 +279,28 @@ public final class OccultismRitualAdapter implements MultiblockAdapter {
         int missingApi = 0;
         int inputMismatch = 0;
         int mismatchLogged = 0;
-        for (var holder : recipes(level)) {
+        for (var recipe : recipes(level)) {
             scanned++;
-            var recipe = holder;
-            if (!OccultismReflection.hasValidPentacle(recipe, level, mainPos)) {
-                pentacleFail++;
-                continue;
-            }
             var activation = OccultismReflection.getActivationItem(recipe);
             var ingredients = OccultismReflection.getIngredients(recipe);
             if (activation == null || ingredients == null) {
                 missingApi++;
+                if (mismatchLogged < 5 && LOG.isDebugEnabled()) {
+                    LOG.debug("findCandidate: recipe {} skipped (activationResolved={}, ingredientsResolved={})",
+                            recipe.getId(), activation != null, ingredients != null);
+                    mismatchLogged++;
+                }
                 continue;
             }
-            if (matchInputsToRecipe(patternUnits, recipe) == null) {
+            if (matchInputsToRecipe(patternUnits, recipe, activation, ingredients) == null) {
                 inputMismatch++;
-                if (mismatchLogged < 5) {
+                if (mismatchLogged < 5 && LOG.isDebugEnabled()) {
+                    // Guard the debug branch: ingredientFirstItems / ingredientListItems
+                    // call BuiltInRegistries.ITEM.getKey per ItemStack (allocates a
+                    // ResourceLocation and validates the path), which is wasteful
+                    // when debug logging is off.
                     LOG.debug("findCandidate: recipe {} mismatch (activation={}, ingredients={}, requiresSacrifice={}, requiresItemUse={}, itemToUse={})",
-                            holder.getId(),
+                            recipe.getId(),
                             ingredientFirstItems(activation),
                             ingredientListItems(ingredients),
                             OccultismReflection.requiresSacrifice(recipe),
@@ -306,12 +310,29 @@ public final class OccultismRitualAdapter implements MultiblockAdapter {
                 }
                 continue;
             }
-            LOG.debug("findCandidate: matched recipe {} at {} ({} pattern units)",
-                    holder.getId(), mainPos, patternUnits.size());
+            // Pentacle last: it is an in-world structure check, so only the
+            // input-matched recipe needs it. (Checking it first rejected all 70
+            // recipes whenever the player's built pentacle belonged to a
+            // different ritual, and hid input mismatches behind pentacleFail.)
+            if (!OccultismReflection.hasValidPentacle(recipe, level, mainPos)) {
+                pentacleFail++;
+                if (mismatchLogged < 5 && LOG.isDebugEnabled()) {
+                    LOG.debug("findCandidate: recipe {} input-matched but pentacle invalid at {}",
+                            recipe.getId(), mainPos);
+                    mismatchLogged++;
+                }
+                continue;
+            }
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("findCandidate: matched recipe {} at {} ({} pattern units)",
+                        recipe.getId(), mainPos, patternUnits.size());
+            }
             return new OccultismBindHandle(recipe);
         }
-        LOG.debug("findCandidate: no match at {} (scanned={}, pentacleFail={}, missingApi={}, inputMismatch={}, patternUnits={})",
-                mainPos, scanned, pentacleFail, missingApi, inputMismatch, patternUnits.size());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("findCandidate: no match at {} (scanned={}, pentacleFail={}, missingApi={}, inputMismatch={}, patternUnits={})",
+                    mainPos, scanned, pentacleFail, missingApi, inputMismatch, patternUnits.size());
+        }
         return null;
     }
 
@@ -357,7 +378,13 @@ public final class OccultismRitualAdapter implements MultiblockAdapter {
         if (activation == null || ingredients == null) {
             return null;
         }
+        return matchInputsToRecipe(units, recipe, activation, ingredients);
+    }
 
+    @Nullable
+    private static InputMatch matchInputsToRecipe(List<PlannedUnit> units, Object recipe,
+                                                  Ingredient activation,
+                                                  List<Ingredient> ingredients) {
         for (int i = 0; i < units.size(); i++) {
             if (!activation.test(units.get(i).stack())) {
                 continue;

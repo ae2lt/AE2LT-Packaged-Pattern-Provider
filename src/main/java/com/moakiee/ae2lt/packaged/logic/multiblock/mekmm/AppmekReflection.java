@@ -20,6 +20,8 @@ final class AppmekReflection {
     private static volatile @Nullable Method ofMethod;
     private static volatile @Nullable Method getStackMethod;
     private static volatile @Nullable Method copyWithAmountMethod;
+    private static volatile @Nullable Method copyMethod;
+    private static volatile @Nullable Method setAmountMethod;
 
     private AppmekReflection() {}
 
@@ -46,11 +48,19 @@ final class AppmekReflection {
     @Nullable
     static Object toChemicalStackWithAmount(AEKey key, long amount) {
         ensureLookup();
-        if (getStackMethod == null || copyWithAmountMethod == null || !isMekanismKey(key)) return null;
+        if (getStackMethod == null || !isMekanismKey(key)) return null;
         try {
             Object stack = getStackMethod.invoke(key);
             if (stack == null) return null;
-            return copyWithAmountMethod.invoke(stack, amount);
+            if (copyWithAmountMethod != null) {
+                return copyWithAmountMethod.invoke(stack, amount);
+            }
+            // 1.20.x has no copyWithAmount; copy() + setAmount(long) instead.
+            if (copyMethod == null || setAmountMethod == null) return null;
+            Object copy = copyMethod.invoke(stack);
+            if (copy == null) return null;
+            setAmountMethod.invoke(copy, amount);
+            return copy;
         } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
             return null;
         }
@@ -89,10 +99,28 @@ final class AppmekReflection {
         try {
             Class<?> chemicalStackClass = Class.forName("mekanism.api.chemical.ChemicalStack");
             ofMethod = mekanismKeyClass.getMethod("of", chemicalStackClass);
-            copyWithAmountMethod = chemicalStackClass.getMethod("copyWithAmount", long.class);
-            LOG.debug("[ae2ltpp] Resolved MekanismKey.of() and ChemicalStack.copyWithAmount()");
+            // 1.21+ offers copyWithAmount(long); 1.20.x only has
+            // copy() + setAmount(long), so both paths are resolved.
+            copyWithAmountMethod = tryMethod(chemicalStackClass, "copyWithAmount", long.class);
+            copyMethod = tryMethod(chemicalStackClass, "copy");
+            setAmountMethod = tryMethod(chemicalStackClass, "setAmount", long.class);
+            if (copyWithAmountMethod == null && (copyMethod == null || setAmountMethod == null)) {
+                LOG.warn("[ae2ltpp] No ChemicalStack copy-with-amount member found: copyWithAmount={}, copy={}, setAmount={}",
+                        copyWithAmountMethod != null, copyMethod != null, setAmountMethod != null);
+            } else {
+                LOG.debug("[ae2ltpp] Resolved MekanismKey.of() and chemical copy members");
+            }
         } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
             LOG.warn("[ae2ltpp] Failed to resolve chemical conversion methods: {}", e.getMessage());
+        }
+    }
+
+    @Nullable
+    private static Method tryMethod(Class<?> declaring, String name, Class<?>... parameterTypes) {
+        try {
+            return declaring.getMethod(name, parameterTypes);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+            return null;
         }
     }
 }

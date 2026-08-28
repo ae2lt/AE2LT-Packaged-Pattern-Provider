@@ -203,8 +203,7 @@ public final class BotaniaRecipeLookup {
         if (patternKey == null) {
             return null;
         }
-        for (var holder : recipesOf(level, BotaniaReflection.manaInfusionType())) {
-            var recipe = holder;
+        for (var recipe : recipesOf(level, BotaniaReflection.manaInfusionType())) {
             var result = safeResult(recipe, level);
             if (result == null || result.isEmpty()) {
                 continue;
@@ -215,7 +214,7 @@ public final class BotaniaRecipeLookup {
             if (!validatePatternOutputKey(pattern, result)) {
                 continue;
             }
-            return holder;
+            return recipe;
         }
         return null;
     }
@@ -228,8 +227,7 @@ public final class BotaniaRecipeLookup {
         if (patternKey == null) {
             return null;
         }
-        for (var holder : recipesOf(level, BotaniaReflection.petalType())) {
-            var recipe = holder;
+        for (var recipe : recipesOf(level, BotaniaReflection.petalType())) {
             var result = safeResult(recipe, level);
             if (result == null || result.isEmpty()) {
                 continue;
@@ -240,7 +238,7 @@ public final class BotaniaRecipeLookup {
             if (!validatePatternOutputKey(pattern, result)) {
                 continue;
             }
-            return holder;
+            return recipe;
         }
         return null;
     }
@@ -266,15 +264,14 @@ public final class BotaniaRecipeLookup {
         if (patternOutputs.length == 0) {
             return null;
         }
-        for (var holder : recipesOf(level, BotaniaReflection.runeType())) {
-            var recipe = holder;
+        for (var recipe : recipesOf(level, BotaniaReflection.runeType())) {
             var result = safeResult(recipe, level);
             if (result == null || result.isEmpty()) {
                 continue;
             }
             var catalysts = BotaniaReflection.recipeCatalysts(recipe);
             if (validatePatternRunicOutputs(pattern, result, catalysts)) {
-                return holder;
+                return recipe;
             }
         }
         return null;
@@ -373,8 +370,7 @@ public final class BotaniaRecipeLookup {
         if (patternKey == null) {
             return null;
         }
-        for (var holder : recipesOf(level, BotaniaReflection.terraPlateType())) {
-            var recipe = holder;
+        for (var recipe : recipesOf(level, BotaniaReflection.terraPlateType())) {
             var result = safeResult(recipe, level);
             if (result == null || result.isEmpty()) {
                 continue;
@@ -385,7 +381,7 @@ public final class BotaniaRecipeLookup {
             if (!validatePatternOutputKey(pattern, result)) {
                 continue;
             }
-            return holder;
+            return recipe;
         }
         return null;
     }
@@ -403,8 +399,7 @@ public final class BotaniaRecipeLookup {
         if (patternOutputs.length == 0) {
             return null;
         }
-        for (var holder : recipesOf(level, BotaniaReflection.elvenTradeType())) {
-            var recipe = holder;
+        for (var recipe : recipesOf(level, BotaniaReflection.elvenTradeType())) {
             var outputs = elvenTradeOutputs(recipe);
             if (outputs.isEmpty()) {
                 continue;
@@ -412,7 +407,7 @@ public final class BotaniaRecipeLookup {
             if (!validatePatternMultiOutput(pattern, outputs)) {
                 continue;
             }
-            return holder;
+            return recipe;
         }
         return null;
     }
