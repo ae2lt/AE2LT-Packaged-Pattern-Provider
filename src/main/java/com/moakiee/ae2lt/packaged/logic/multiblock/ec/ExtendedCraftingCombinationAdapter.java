@@ -35,6 +35,7 @@ import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
 import com.moakiee.ae2lt.packaged.patternprovider.OverloadPatternSemantics;
 import com.moakiee.ae2lt.packaged.item.AdapterIds;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchPlan;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterBlocks;
 import com.moakiee.ae2lt.packaged.logic.multiblock.InsertionStrategy;
 import com.moakiee.ae2lt.packaged.logic.multiblock.MultiblockAdapter;
 import com.moakiee.ae2lt.packaged.logic.multiblock.TargetSlot;
@@ -185,8 +186,7 @@ public final class ExtendedCraftingCombinationAdapter implements MultiblockAdapt
 
     @Nullable
     private static Object findCandidateRecipe(ServerLevel level, IPatternDetails pattern) {
-        for (var holder : recipes(level)) {
-            var recipe = holder;
+        for (var recipe : recipes(level)) {
             var result = EcReflection.getResultItem(recipe, level);
             if (result == null || result.isEmpty()) continue;
             if (!outputMatches(pattern, result)) continue;
@@ -361,9 +361,7 @@ public final class ExtendedCraftingCombinationAdapter implements MultiblockAdapt
         return ModList.get().isLoaded(MOD_ID);
     }
 
-    private static ResourceLocation blockId(BlockState state) {
-        return BuiltInRegistries.BLOCK.getKey(state.getBlock());
-    }
+    private static ResourceLocation blockId(BlockState state) { return AdapterBlocks.idOf(state); }
 
     private static ResourceLocation ecId(String path) {
         return new ResourceLocation(MOD_ID, path);
@@ -402,7 +400,6 @@ public final class ExtendedCraftingCombinationAdapter implements MultiblockAdapt
         private static volatile boolean lookupDone;
         private static volatile @Nullable Method getInventoryMethod;
         private static volatile @Nullable Method getProgressMethod;
-        private static volatile @Nullable Method getInputMethod;
 
         @Nullable
         static IItemHandler getInventory(BlockEntity be) {
@@ -439,21 +436,28 @@ public final class ExtendedCraftingCombinationAdapter implements MultiblockAdapt
 
         @Nullable
         static Ingredient getCatalyst(Object recipe) {
-            ensureLookup();
-            if (getInputMethod == null) return null;
-            try {
-                var value = getInputMethod.invoke(recipe);
-                return value instanceof Ingredient i ? i : null;
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
-                return null;
-            }
+            // 1.20.x CombinationRecipe stores the core input at index 0 of its
+            // single ingredient list (no getInput(); that split only exists on
+            // 1.21).
+            var all = allIngredients(recipe);
+            if (all == null || all.isEmpty()) return null;
+            var first = all.get(0);
+            return first.isEmpty() ? null : first;
         }
 
         @Nullable
         static List<Ingredient> getRecipeIngredients(Object recipe) {
+            // Pedestal ingredients are everything after the index-0 core input.
+            var all = allIngredients(recipe);
+            if (all == null || all.size() < 1) return null;
+            return new ArrayList<>(all.subList(1, all.size()));
+        }
+
+        @Nullable
+        private static List<Ingredient> allIngredients(Object recipe) {
             if (!(recipe instanceof Recipe<?> r)) return null;
             try {
-                return new ArrayList<>(r.getIngredients());
+                return r.getIngredients();
             } catch (RuntimeException | LinkageError ignored) {
                 return null;
             }
@@ -475,13 +479,6 @@ public final class ExtendedCraftingCombinationAdapter implements MultiblockAdapt
                     getProgressMethod = coreClass.getMethod("getProgress");
                 } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
                     LOG.warn("Combination reflection: CraftingCoreTileEntity#getProgress lookup failed: {}",
-                            e.toString());
-                }
-                try {
-                    var recipeClass = Class.forName(COMBINATION_RECIPE_CLASS);
-                    getInputMethod = recipeClass.getMethod("getInput");
-                } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
-                    LOG.warn("Combination reflection: CombinationRecipe#getInput lookup failed: {}",
                             e.toString());
                 }
                 lookupDone = true;

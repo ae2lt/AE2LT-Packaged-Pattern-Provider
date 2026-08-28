@@ -7,9 +7,11 @@
   ],
   "type": "ars_nouveau:enchanting_apparatus",
   "keepNbtOfReagent": false,
-  "reagent": {
-    "item": "ae2ltpp:basic_packaged_core"
-  },
+  "reagent": [
+    {
+      "item": "ae2ltpp:basic_packaged_core"
+    }
+  ],
   "pedestalItems": [
     {
       "item": "ars_nouveau:fire_essence"
@@ -37,8 +39,8 @@
     }
   ],
   "sourceCost": 3000,
-  "result": {
-    "id": "ae2ltpp:ars_apparatus_packaged_core",
-    "count": 1
+  "output": {
+    "count": 1,
+    "item": "ae2ltpp:ars_apparatus_packaged_core"
   }
 }

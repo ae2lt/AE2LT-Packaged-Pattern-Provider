@@ -32,6 +32,7 @@ import appeng.api.stacks.KeyCounter;
 
 import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchPlan;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterBlocks;
 import com.moakiee.ae2lt.packaged.logic.multiblock.InsertionStrategy;
 import com.moakiee.ae2lt.packaged.logic.multiblock.MultiblockAdapter;
 import com.moakiee.ae2lt.packaged.logic.multiblock.ReflectionSupport;
@@ -45,6 +46,9 @@ import com.moakiee.ae2lt.packaged.patternprovider.OverloadPatternSemantics;
  * Pure reflection — DE is not a compile dependency.
  */
 public final class DraconicFusionCraftingAdapter implements MultiblockAdapter {
+
+    private static final org.slf4j.Logger LOG =
+            org.slf4j.LoggerFactory.getLogger(DraconicFusionCraftingAdapter.class);
 
     private static final String MOD_ID = "draconicevolution";
     private static final ResourceLocation CRAFTING_CORE_BLOCK = deId("crafting_core");
@@ -172,8 +176,7 @@ public final class DraconicFusionCraftingAdapter implements MultiblockAdapter {
         var recipes = DEReflection.getFusionRecipes(level);
         if (recipes == null) return null;
 
-        for (var holder : recipes) {
-            var recipe = holder;
+        for (var recipe : recipes) {
             var catalyst = DEReflection.getCatalyst(recipe);
             var fusionIngredients = DEReflection.getFusionIngredients(recipe);
             var recipeTierIndex = DEReflection.getRecipeTierIndex(recipe);
@@ -358,9 +361,7 @@ public final class DraconicFusionCraftingAdapter implements MultiblockAdapter {
         return ModList.get().isLoaded(MOD_ID);
     }
 
-    private static ResourceLocation blockId(BlockState state) {
-        return BuiltInRegistries.BLOCK.getKey(state.getBlock());
-    }
+    private static ResourceLocation blockId(BlockState state) { return AdapterBlocks.idOf(state); }
 
     private static ResourceLocation deId(String path) {
         return new ResourceLocation(MOD_ID, path);
@@ -405,7 +406,7 @@ public final class DraconicFusionCraftingAdapter implements MultiblockAdapter {
         private static final String FUSION_INGREDIENT_CLASS =
                 "com.brandon3055.draconicevolution.api.crafting.IFusionRecipe$IFusionIngredient";
         private static final String STACK_INGREDIENT_CLASS =
-                "com.brandon3055.draconicevolution.api.crafting.StackIngredient";
+                "com.brandon3055.draconicevolution.api.crafting.IngredientStack";
         private static final String DRACONIC_API_CLASS =
                 "com.brandon3055.draconicevolution.api.DraconicAPI";
         private static final String TECH_LEVEL_CLASS =
@@ -429,8 +430,6 @@ public final class DraconicFusionCraftingAdapter implements MultiblockAdapter {
         private static volatile @Nullable Method ingredientGetMethod;
         private static volatile @Nullable Method ingredientConsumeMethod;
         private static volatile @Nullable Field techLevelIndexField;
-        private static volatile @Nullable Method getCustomIngredientMethod;
-        private static volatile @Nullable Method stackIngredientCountMethod;
         private static volatile @Nullable Object fusionRecipeType;
 
         static boolean isCrafting(BlockEntity be) {
@@ -627,7 +626,9 @@ public final class DraconicFusionCraftingAdapter implements MultiblockAdapter {
             ensureLookup();
             if (getResultItemMethod == null) return null;
             try {
-                var result = getResultItemMethod.invoke(recipe, level.registryAccess());
+                var result = getResultItemMethod.getParameterCount() == 0
+                        ? getResultItemMethod.invoke(recipe)
+                        : getResultItemMethod.invoke(recipe, level.registryAccess());
                 return result instanceof ItemStack s ? s.copy() : null;
             } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
                 return null;
@@ -636,25 +637,23 @@ public final class DraconicFusionCraftingAdapter implements MultiblockAdapter {
 
         static int getCatalystCount(Object recipe) {
             ensureLookup();
-            if (getCatalystMethod == null) return 1;
             try {
                 var catalyst = getCatalystMethod.invoke(recipe);
                 if (!(catalyst instanceof Ingredient ing)) return 1;
-                if (getCustomIngredientMethod == null) return 1;
-                var custom = getCustomIngredientMethod.invoke(ing);
-                if (custom == null) return 1;
+                // DE 1.20.x represents counted catalysts as IngredientStack (an
+                // Ingredient subclass) exposing the count via getCount().
                 var stackIngClass = ReflectionSupport.findClassCached(STACK_INGREDIENT_CLASS).orElse(null);
-                if (stackIngClass == null) return 1;
-                if (!stackIngClass.isInstance(custom)) return 1;
-                if (stackIngredientCountMethod == null) {
-                    stackIngredientCountMethod = ReflectionSupport.findMethodCached(stackIngClass, "getCount")
+                if (stackIngClass != null && stackIngClass.isInstance(ing)) {
+                    var count = ReflectionSupport.findMethodCached(stackIngClass, "getCount")
                             .orElse(null);
+                    if (count != null) {
+                        var value = count.invoke(ing);
+                        if (value instanceof Number n && n.intValue() > 0) {
+                            return n.intValue();
+                        }
+                    }
                 }
-                if (stackIngredientCountMethod == null) {
-                    return 1;
-                }
-                var count = stackIngredientCountMethod.invoke(custom);
-                return count instanceof Number n ? n.intValue() : 1;
+                return 1;
             } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
                 return 1;
             }
@@ -664,9 +663,9 @@ public final class DraconicFusionCraftingAdapter implements MultiblockAdapter {
             if (lookupDone) return;
             synchronized (DEReflection.class) {
                 if (lookupDone) return;
-                try {
-                    doLookup();
-                } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+        try {
+            doLookup();
+        } catch (RuntimeException | LinkageError ignored) {
                 } finally {
                     lookupDone = true;
                 }
@@ -674,44 +673,82 @@ public final class DraconicFusionCraftingAdapter implements MultiblockAdapter {
         }
 
         @SuppressWarnings("unchecked")
-        private static void doLookup() throws ReflectiveOperationException {
-            var coreClass = Class.forName(CORE_CLASS);
-            isCraftingMethod = coreClass.getMethod("isCrafting");
-            startCraftMethod = coreClass.getMethod("startCraft");
-            getCatalystStackMethod = coreClass.getMethod("getCatalystStack");
-            setCatalystStackMethod = coreClass.getMethod("setCatalystStack", ItemStack.class);
-            getOutputStackMethod = coreClass.getMethod("getOutputStack");
-            setOutputStackMethod = coreClass.getMethod("setOutputStack", ItemStack.class);
-            getInjectorsMethod = coreClass.getMethod("getInjectors");
+        private static void doLookup() {
+            // Core + injector BE members. Each group resolves independently so a
+            // single missing name cannot silently disable the whole adapter.
+            try {
+                var coreClass = Class.forName(CORE_CLASS);
+                isCraftingMethod = coreClass.getMethod("isCrafting");
+                startCraftMethod = coreClass.getMethod("startCraft");
+                getCatalystStackMethod = coreClass.getMethod("getCatalystStack");
+                setCatalystStackMethod = coreClass.getMethod("setCatalystStack", ItemStack.class);
+                getOutputStackMethod = coreClass.getMethod("getOutputStack");
+                setOutputStackMethod = coreClass.getMethod("setOutputStack", ItemStack.class);
+                getInjectorsMethod = coreClass.getMethod("getInjectors");
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+                LOG.warn("[ae2ltpp] DE fusion: failed to resolve TileFusionCraftingCore members: {}", e.getMessage());
+            }
 
-            var injectorClass = Class.forName(INJECTOR_CLASS);
-            getInjectorStackMethod = injectorClass.getMethod("getInjectorStack");
-            setInjectorStackMethod = injectorClass.getMethod("setInjectorStack", ItemStack.class);
-            getInjectorTierMethod = injectorClass.getMethod("getInjectorTier");
+            try {
+                var injectorClass = Class.forName(INJECTOR_CLASS);
+                getInjectorStackMethod = injectorClass.getMethod("getInjectorStack");
+                setInjectorStackMethod = injectorClass.getMethod("setInjectorStack", ItemStack.class);
+                getInjectorTierMethod = injectorClass.getMethod("getInjectorTier");
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+                LOG.warn("[ae2ltpp] DE fusion: failed to resolve TileFusionCraftingInjector members: {}", e.getMessage());
+            }
 
-            var techLevelClass = Class.forName(TECH_LEVEL_CLASS);
-            techLevelIndexField = techLevelClass.getField("index");
+            try {
+                var techLevelClass = Class.forName(TECH_LEVEL_CLASS);
+                techLevelIndexField = techLevelClass.getField("index");
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+                LOG.warn("[ae2ltpp] DE fusion: failed to resolve TechLevel.index: {}", e.getMessage());
+            }
 
-            var recipeClass = Class.forName(FUSION_RECIPE_CLASS);
-            fusionIngredientsMethod = recipeClass.getMethod("fusionIngredients");
-            getCatalystMethod = recipeClass.getMethod("getCatalyst");
-            getRecipeTierMethod = recipeClass.getMethod("getRecipeTier");
-            getResultItemMethod = recipeClass.getMethod("getResultItem",
-                    net.minecraft.core.HolderLookup.Provider.class);
+            try {
+                var recipeClass = Class.forName(FUSION_RECIPE_CLASS);
+                fusionIngredientsMethod = recipeClass.getMethod("fusionIngredients");
+                getCatalystMethod = recipeClass.getMethod("getCatalyst");
+                getRecipeTierMethod = recipeClass.getMethod("getRecipeTier");
+                // FusionRecipe overrides getResultItem(RegistryAccess) — the plain
+                // no-arg Recipe#getResultItem is NOT overridden and returns EMPTY,
+                // which silently rejected every recipe at bind time. Resolve the
+                // RegistryAccess overload first (1.20.x), then the 1.20.5+
+                // HolderLookup.Provider overload, then fall back to no-arg.
+                try {
+                    getResultItemMethod = recipeClass.getMethod("getResultItem",
+                            net.minecraft.core.RegistryAccess.class);
+                } catch (NoSuchMethodException noRegistryAccessOverload) {
+                    try {
+                        getResultItemMethod = recipeClass.getMethod("getResultItem",
+                                net.minecraft.core.HolderLookup.Provider.class);
+                    } catch (NoSuchMethodException noProviderOverload) {
+                        getResultItemMethod = recipeClass.getMethod("getResultItem");
+                    }
+                }
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+                LOG.warn("[ae2ltpp] DE fusion: failed to resolve IFusionRecipe members: {}", e.getMessage());
+            }
 
-            var ingredientClass = Class.forName(FUSION_INGREDIENT_CLASS);
-            ingredientGetMethod = ingredientClass.getMethod("get");
-            ingredientConsumeMethod = ingredientClass.getMethod("consume");
+            try {
+                var ingredientClass = Class.forName(FUSION_INGREDIENT_CLASS);
+                ingredientGetMethod = ingredientClass.getMethod("get");
+                ingredientConsumeMethod = ingredientClass.getMethod("consume");
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+                LOG.warn("[ae2ltpp] DE fusion: failed to resolve IFusionIngredient members: {}", e.getMessage());
+            }
 
-            getCustomIngredientMethod = Ingredient.class.getMethod("getCustomIngredient");
-
-            // Resolve fusion recipe type from DraconicAPI
-            var apiClass = Class.forName(DRACONIC_API_CLASS);
-            var typeField = apiClass.getField("FUSION_RECIPE_TYPE");
-            var holder = typeField.get(null);
-            if (holder != null) {
-                var getMethod = holder.getClass().getMethod("get");
-                fusionRecipeType = getMethod.invoke(holder);
+            try {
+                // Resolve fusion recipe type from DraconicAPI's RegistryObject.
+                var apiClass = Class.forName(DRACONIC_API_CLASS);
+                var typeField = apiClass.getField("FUSION_RECIPE_TYPE");
+                var holder = typeField.get(null);
+                if (holder != null) {
+                    var getMethod = holder.getClass().getMethod("get");
+                    fusionRecipeType = getMethod.invoke(holder);
+                }
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+                LOG.warn("[ae2ltpp] DE fusion: failed to resolve DraconicAPI.FUSION_RECIPE_TYPE: {}", e.getMessage());
             }
         }
     }

@@ -28,6 +28,7 @@ import appeng.api.stacks.KeyCounter;
 import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
 import com.moakiee.ae2lt.packaged.patternprovider.OverloadPatternSemantics;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchPlan;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterBlocks;
 import com.moakiee.ae2lt.packaged.logic.multiblock.VirtualCraftingAdapter;
 import com.moakiee.ae2lt.packaged.logic.multiblock.VirtualCraftingResult;
 import com.moakiee.ae2lt.packaged.logic.multiblock.binding.BindingMode;
@@ -233,8 +234,7 @@ public final class ActuallyAdditionsAtomicReconstructorAdapter implements Virtua
      */
     @Nullable
     private static ReconstructorBindHandle findCandidateRecipe(ServerLevel level, IPatternDetails pattern) {
-        for (var holder : recipes(level)) {
-            var recipe = holder;
+        for (var recipe : recipes(level)) {
             int energy = AaReconstructorReflection.getRecipeEnergy(recipe);
             if (energy <= 0) {
                 continue;
@@ -350,9 +350,7 @@ public final class ActuallyAdditionsAtomicReconstructorAdapter implements Virtua
         return ModList.get().isLoaded(MOD_ID);
     }
 
-    private static ResourceLocation blockId(BlockState state) {
-        return BuiltInRegistries.BLOCK.getKey(state.getBlock());
-    }
+    private static ResourceLocation blockId(BlockState state) { return AdapterBlocks.idOf(state); }
 
     private static ResourceLocation aaId(String path) {
         return new ResourceLocation(MOD_ID, path);

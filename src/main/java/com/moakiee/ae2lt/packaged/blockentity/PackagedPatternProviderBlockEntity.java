@@ -54,6 +54,15 @@ public class PackagedPatternProviderBlockEntity extends StablePatternProviderBlo
      * clashing &mdash; namespacing is the adapter's responsibility, which is
      * spelled out in {@link AdapterPersistentScope}.
      */
+    /**
+     * Per-adapter persistent flags, keyed by adapter-namespaced String.
+     *
+     * <p><b>Namespacing contract:</b> the key string MUST be prefixed with the
+     * calling adapter's mod id (e.g. {@code "mysticalagriculture:altar_used"}).
+     * A bare key like {@code "altar"} will collide across adapters and the
+     * {@code adapterFlags} map will grow without bound as different adapters
+     * pick their own keys. See {@link AdapterPersistentScope} for the public API.
+     */
     private final java.util.HashMap<String, java.util.HashSet<Long>> adapterFlags = new java.util.HashMap<>();
 
     private final ProviderMode fixedProviderMode;

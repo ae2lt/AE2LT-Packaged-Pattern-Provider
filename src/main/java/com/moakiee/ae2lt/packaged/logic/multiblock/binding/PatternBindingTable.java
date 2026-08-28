@@ -33,45 +33,64 @@ public final class PatternBindingTable {
 
     private static final long NEGATIVE_BINDING_TTL_TICKS = 40;
 
+    // IdentityHashMap is not thread-safe; synchronize all access to keep the
+    // get+remove in getFresh atomic and to avoid CME under concurrent grid
+    // events. The lock is per-table (instance), so providers don't block each
+    // other.
     private final Map<IPatternDetails, PatternBinding> bindings = new IdentityHashMap<>();
+    private final Object lock = new Object();
 
     @Nullable
     public PatternBinding get(IPatternDetails pattern) {
-        return bindings.get(pattern);
+        synchronized (lock) {
+            return bindings.get(pattern);
+        }
     }
 
     @Nullable
     public PatternBinding getFresh(IPatternDetails pattern, long gameTick) {
-        var binding = bindings.get(pattern);
-        if (binding == null) {
-            return null;
+        synchronized (lock) {
+            var binding = bindings.get(pattern);
+            if (binding == null) {
+                return null;
+            }
+            if (!binding.isMatched()
+                    && gameTick - binding.computedAtTick() >= NEGATIVE_BINDING_TTL_TICKS) {
+                bindings.remove(pattern);
+                return null;
+            }
+            return binding;
         }
-        if (!binding.isMatched()
-                && gameTick - binding.computedAtTick() >= NEGATIVE_BINDING_TTL_TICKS) {
-            bindings.remove(pattern);
-            return null;
-        }
-        return binding;
     }
 
     public void put(IPatternDetails pattern, PatternBinding binding) {
-        bindings.put(pattern, binding);
+        synchronized (lock) {
+            bindings.put(pattern, binding);
+        }
     }
 
     public void invalidate(IPatternDetails pattern) {
-        bindings.remove(pattern);
+        synchronized (lock) {
+            bindings.remove(pattern);
+        }
     }
 
     public void invalidateAll() {
-        bindings.clear();
+        synchronized (lock) {
+            bindings.clear();
+        }
     }
 
     public int size() {
-        return bindings.size();
+        synchronized (lock) {
+            return bindings.size();
+        }
     }
 
     /** Snapshot for debug; not part of the hot path. */
     public Map<IPatternDetails, PatternBinding> snapshot() {
-        return new HashMap<>(bindings);
+        synchronized (lock) {
+            return new HashMap<>(bindings);
+        }
     }
 }

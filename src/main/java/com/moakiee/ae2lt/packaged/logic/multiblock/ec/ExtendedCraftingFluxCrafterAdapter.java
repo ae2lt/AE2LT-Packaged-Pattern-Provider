@@ -35,8 +35,10 @@ import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
 import com.moakiee.ae2lt.packaged.patternprovider.OverloadPatternSemantics;
 import com.moakiee.ae2lt.packaged.item.AdapterIds;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchPlan;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterBlocks;
 import com.moakiee.ae2lt.packaged.logic.multiblock.InsertionStrategy;
 import com.moakiee.ae2lt.packaged.logic.multiblock.MultiblockAdapter;
+import com.moakiee.ae2lt.packaged.logic.multiblock.ReflectionSupport;
 import com.moakiee.ae2lt.packaged.logic.multiblock.TargetSlot;
 import com.moakiee.ae2lt.packaged.logic.multiblock.binding.BindingMode;
 import com.moakiee.ae2lt.packaged.logic.multiblock.binding.BindingResult;
@@ -162,8 +164,7 @@ public final class ExtendedCraftingFluxCrafterAdapter implements MultiblockAdapt
 
     @Nullable
     private static Object findCandidateRecipe(ServerLevel level, IPatternDetails pattern) {
-        for (var holder : recipes(level)) {
-            var recipe = holder;
+        for (var recipe : recipes(level)) {
             var result = EcReflection.getResultItem(recipe, level);
             if (result == null || result.isEmpty()) continue;
             if (!outputMatches(pattern, result)) continue;
@@ -333,9 +334,7 @@ public final class ExtendedCraftingFluxCrafterAdapter implements MultiblockAdapt
         return ModList.get().isLoaded(MOD_ID);
     }
 
-    private static ResourceLocation blockId(BlockState state) {
-        return BuiltInRegistries.BLOCK.getKey(state.getBlock());
-    }
+    private static ResourceLocation blockId(BlockState state) { return AdapterBlocks.idOf(state); }
 
     private static ResourceLocation ecId(String path) {
         return new ResourceLocation(MOD_ID, path);
@@ -398,21 +397,35 @@ public final class ExtendedCraftingFluxCrafterAdapter implements MultiblockAdapt
         }
 
         static int getShapedWidth(Object recipe) {
-            ensureLookup();
-            return invokePatternDimension(recipe, shapedWidthMethod);
+            return getShapedDimension(recipe, shapedWidthMethod, "getWidth");
         }
 
         static int getShapedHeight(Object recipe) {
-            ensureLookup();
-            return invokePatternDimension(recipe, shapedHeightMethod);
+            return getShapedDimension(recipe, shapedHeightMethod, "getHeight");
         }
 
-        private static int invokePatternDimension(Object recipe, @Nullable Method m) {
-            if (m == null || shapedRecipePatternClass == null) return -1;
-            var pattern = findPattern(recipe);
-            if (pattern == null) return -1;
+        /**
+         * 1.20.5+ keeps shaped dimensions in {@code ShapedRecipePattern}; on
+         * 1.20.x EC's shaped recipes declare {@code getWidth()}/{@code
+         * getHeight()} directly (shapeless variants have neither, which
+         * classifies them as shapeless).
+         */
+        private static int getShapedDimension(Object recipe, @Nullable Method patternMethod,
+                                              String directName) {
+            if (patternMethod != null && shapedRecipePatternClass != null) {
+                var pattern = findPattern(recipe);
+                if (pattern != null) {
+                    try {
+                        var value = patternMethod.invoke(pattern);
+                        if (value instanceof Integer i) return i;
+                    } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+                    }
+                }
+            }
+            var direct = ReflectionSupport.findMethodCached(recipe.getClass(), directName).orElse(null);
+            if (direct == null) return -1;
             try {
-                var value = m.invoke(pattern);
+                var value = direct.invoke(recipe);
                 return value instanceof Integer i ? i : -1;
             } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
                 return -1;
@@ -456,8 +469,11 @@ public final class ExtendedCraftingFluxCrafterAdapter implements MultiblockAdapt
                     shapedWidthMethod = patternClass.getMethod("width");
                     shapedHeightMethod = patternClass.getMethod("height");
                 } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
-                    LOG.warn("FluxCrafter reflection: ShapedRecipePattern dimension methods missing: {}",
-                            e.toString());
+                    // 1.20.x: no ShapedRecipePattern; shaped EC recipes carry
+                    // their own getWidth()/getHeight() — resolved per call.
+                    shapedRecipePatternClass = null;
+                    shapedWidthMethod = null;
+                    shapedHeightMethod = null;
                 }
                 lookupDone = true;
             }

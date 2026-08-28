@@ -6,7 +6,6 @@
     }
   ],
   "type": "extendedcrafting:shaped_ender_crafter",
-  "crafting_time": 200,
   "pattern": [
     "ESE",
     "SCS",
@@ -24,7 +23,8 @@
     }
   },
   "result": {
-    "id": "ae2ltpp:ec_ender_crafter_packaged_core",
-    "count": 1
-  }
+    "count": 1,
+    "item": "ae2ltpp:ec_ender_crafter_packaged_core"
+  },
+  "craftingTime": 200
 }

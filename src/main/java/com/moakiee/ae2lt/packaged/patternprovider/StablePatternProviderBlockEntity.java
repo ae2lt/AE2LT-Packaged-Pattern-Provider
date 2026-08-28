@@ -12,6 +12,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
@@ -99,13 +100,22 @@ public abstract class StablePatternProviderBlockEntity
         }
 
         public static WirelessConnection fromTag(CompoundTag tag) {
-            var dimension = ResourceKey.create(
-                    Registries.DIMENSION,
-                    new ResourceLocation(tag.getString(TAG_DIMENSION)));
-            return new WirelessConnection(
-                    dimension,
-                    BlockPos.of(tag.getLong(TAG_POSITION)),
-                    Direction.from3DDataValue(tag.getInt(TAG_FACE)));
+            if (!tag.contains(TAG_DIMENSION, Tag.TAG_STRING)
+                    || !tag.contains(TAG_POSITION, Tag.TAG_LONG)
+                    || !tag.contains(TAG_FACE, Tag.TAG_INT)) {
+                return null;
+            }
+            try {
+                var dimension = ResourceKey.create(
+                        Registries.DIMENSION,
+                        new ResourceLocation(tag.getString(TAG_DIMENSION)));
+                return new WirelessConnection(
+                        dimension,
+                        BlockPos.of(tag.getLong(TAG_POSITION)),
+                        Direction.from3DDataValue(tag.getInt(TAG_FACE)));
+            } catch (RuntimeException ignored) {
+                return null;
+            }
         }
     }
 
@@ -143,6 +153,12 @@ public abstract class StablePatternProviderBlockEntity
             BlockPos pos,
             BlockState state,
             StablePatternProviderBlockEntity blockEntity) {
+        // Skip work after setRemoved: the AE2 block-entity ticker can keep invoking
+        // us for one extra tick after removal, and any reference to the (now-detached)
+        // grid node / adapter state can throw or recurse.
+        if (blockEntity.isRemoved()) {
+            return;
+        }
         if (level instanceof ServerLevel serverLevel) {
             blockEntity.tickWirelessConnectionCleanup(serverLevel);
             blockEntity.serverTickAdditional(serverLevel);

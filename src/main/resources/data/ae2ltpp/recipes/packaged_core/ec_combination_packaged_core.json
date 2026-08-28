@@ -6,7 +6,6 @@
     }
   ],
   "type": "extendedcrafting:combination",
-  "power_cost": 1000000,
   "input": {
     "item": "ae2ltpp:basic_packaged_core"
   },
@@ -37,7 +36,8 @@
     }
   ],
   "result": {
-    "id": "ae2ltpp:ec_combination_packaged_core",
-    "count": 1
-  }
+    "count": 1,
+    "item": "ae2ltpp:ec_combination_packaged_core"
+  },
+  "powerCost": 1000000
 }

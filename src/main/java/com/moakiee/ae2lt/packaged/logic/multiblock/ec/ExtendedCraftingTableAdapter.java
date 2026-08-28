@@ -15,8 +15,11 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.Item;
-import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.CraftingContainer;
+import net.minecraft.world.inventory.TransientCraftingContainer;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.item.crafting.RecipeType;
@@ -36,6 +39,7 @@ import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
 import com.moakiee.ae2lt.packaged.patternprovider.OverloadPatternSemantics;
 import com.moakiee.ae2lt.packaged.item.AdapterIds;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchPlan;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterBlocks;
 import com.moakiee.ae2lt.packaged.logic.multiblock.VirtualCraftingAdapter;
 import com.moakiee.ae2lt.packaged.logic.multiblock.VirtualCraftingResult;
 import com.moakiee.ae2lt.packaged.logic.multiblock.binding.BindingMode;
@@ -343,8 +347,7 @@ public final class ExtendedCraftingTableAdapter implements VirtualCraftingAdapte
 
         boolean overload = OverloadPatternSemantics.isIdOnlyOutput(pattern, 0);
 
-        for (var holder : recipes(level)) {
-            var recipe = holder;
+        for (var recipe : recipes(level)) {
             var resultPreview = resultItem(recipe, level);
             if (resultPreview == null || resultPreview.isEmpty()) {
                 continue;
@@ -543,8 +546,7 @@ public final class ExtendedCraftingTableAdapter implements VirtualCraftingAdapte
 
     @Nullable
     private static Object findMatchingRecipe(ServerLevel level, CraftingContainer input) {
-        for (var holder : recipes(level)) {
-            var recipe = holder;
+        for (var recipe : recipes(level)) {
             if (recipeMatches(recipe, input, level)) {
                 return recipe;
             }
@@ -758,9 +760,7 @@ public final class ExtendedCraftingTableAdapter implements VirtualCraftingAdapte
         return ModList.get().isLoaded(MOD_ID);
     }
 
-    private static ResourceLocation blockId(BlockState state) {
-        return BuiltInRegistries.BLOCK.getKey(state.getBlock());
-    }
+    private static ResourceLocation blockId(BlockState state) { return AdapterBlocks.idOf(state); }
 
     private static ResourceLocation ecId(String path) {
         return new ResourceLocation(MOD_ID, path);
@@ -801,15 +801,23 @@ public final class ExtendedCraftingTableAdapter implements VirtualCraftingAdapte
                 "com.blakebr0.extendedcrafting.tileentity.UltimateTableTileEntity";
         private static final String BASE_INVENTORY_CLASS =
                 "com.blakebr0.cucumber.tileentity.BaseInventoryTileEntity";
-        private static final String TABLE_INPUT_CLASS =
-                "com.blakebr0.extendedcrafting.api.TableCraftingInput";
+
+        /** Menu owner stub; the container is never opened as a screen. */
+        private static final AbstractContainerMenu DUMMY_MENU = new AbstractContainerMenu(null, 0) {
+            @Override
+            public ItemStack quickMoveStack(Player player, int index) {
+                return ItemStack.EMPTY;
+            }
+
+            @Override
+            public boolean stillValid(Player player) {
+                return true;
+            }
+        };
 
         private static volatile boolean lookupDone;
         private static volatile @Nullable Set<Class<?>> tableClasses;
         private static volatile @Nullable Method getInventoryMethod;
-        private static volatile @Nullable Method tableInputOfMethod;
-        private static volatile @Nullable Method tableInputTopMethod;
-        private static volatile @Nullable Method tableInputLeftMethod;
         private static volatile @Nullable Method shapedRecipeWidthMethod;
 
         static boolean isSupportedTable(Object o) {
@@ -839,44 +847,35 @@ public final class ExtendedCraftingTableAdapter implements VirtualCraftingAdapte
             }
         }
 
+        /**
+         * 1.20.x has no {@code TableCraftingInput} API class; the tiles hand
+         * their full {@code gridSize x gridSize} inventory straight to
+         * {@code matches(IItemHandler)}. A vanilla {@link CraftingContainer}
+         * of the same shape reproduces that exactly (offset is always the
+         * grid origin), and Cucumber's {@code ISpecialRecipe} defaults bridge
+         * {@code Container} to {@code IItemHandler} for the generic
+         * {@code matches/assemble/getRemainingItems} entry points.
+         */
         @Nullable
         static CraftingContainer createTableInput(int size, List<ItemStack> stacks, int tier) {
-            ensureLookup();
-            if (tableInputOfMethod == null) {
+            if (stacks.size() != size * size) {
                 return null;
             }
-            try {
-                var value = tableInputOfMethod.invoke(null, size, size, stacks, tier);
-                return value instanceof CraftingContainer input ? input : null;
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
-                return null;
+            var container = new TransientCraftingContainer(DUMMY_MENU, size, size);
+            for (int i = 0; i < stacks.size(); i++) {
+                container.setItem(i, stacks.get(i).copy());
             }
+            return container;
         }
 
+        // The container covers the whole grid, so a matched recipe's window
+        // starts at the table origin.
         static int top(CraftingContainer input) {
-            ensureLookup();
-            if (tableInputTopMethod == null) {
-                return 0;
-            }
-            try {
-                var value = tableInputTopMethod.invoke(input);
-                return value instanceof Integer i ? i : 0;
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
-                return 0;
-            }
+            return 0;
         }
 
         static int left(CraftingContainer input) {
-            ensureLookup();
-            if (tableInputLeftMethod == null) {
-                return 0;
-            }
-            try {
-                var value = tableInputLeftMethod.invoke(input);
-                return value instanceof Integer i ? i : 0;
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
-                return 0;
-            }
+            return 0;
         }
 
         @Nullable
@@ -922,11 +921,6 @@ public final class ExtendedCraftingTableAdapter implements VirtualCraftingAdapte
 
             var baseInventoryClass = Class.forName(BASE_INVENTORY_CLASS);
             getInventoryMethod = baseInventoryClass.getMethod("getInventory");
-
-            var tableInputClass = Class.forName(TABLE_INPUT_CLASS);
-            tableInputOfMethod = tableInputClass.getMethod("of", int.class, int.class, List.class, int.class);
-            tableInputTopMethod = tableInputClass.getMethod("top");
-            tableInputLeftMethod = tableInputClass.getMethod("left");
 
             var shapedRecipeClass = Class.forName("com.blakebr0.extendedcrafting.crafting.recipe.ShapedTableRecipe");
             shapedRecipeWidthMethod = shapedRecipeClass.getMethod("getWidth");

@@ -6,8 +6,6 @@
     }
   ],
   "type": "extendedcrafting:shaped_flux_crafter",
-  "power_required": 500000,
-  "power_rate": 1000,
   "pattern": [
     "RFR",
     "FCF",
@@ -25,7 +23,9 @@
     }
   },
   "result": {
-    "id": "ae2ltpp:ec_flux_crafter_packaged_core",
-    "count": 1
-  }
+    "count": 1,
+    "item": "ae2ltpp:ec_flux_crafter_packaged_core"
+  },
+  "powerRequired": 500000,
+  "powerRate": 1000
 }

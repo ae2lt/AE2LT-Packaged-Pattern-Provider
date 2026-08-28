@@ -28,6 +28,16 @@ import com.moakiee.ae2lt.packaged.logic.multiblock.mekmm.MekmmMachineSpec.PortGr
  */
 final class MekmmMachines {
 
+    // Pre-computed static finals: each spec record stores a ResourceLocation, and
+    // since MekmmMachines is class-loaded exactly once, building them eagerly
+    // here avoids the per-spec "new ResourceLocation(...)" churn from the helper.
+    private static final ResourceLocation ID_NUCLEOSYNTHESIZER = id("large_antiprotonic_nucleosynthesizer");
+    private static final ResourceLocation ID_CHEMICAL_INFUSER = id("large_chemical_infuser");
+    private static final ResourceLocation ID_ELECTROLYTIC_SEPARATOR = id("large_electrolytic_separator");
+    private static final ResourceLocation ID_ROTARY_CONDENSENTRATOR = id("large_rotary_condensentrator");
+    private static final ResourceLocation ID_SOLAR_NEUTRON_ACTIVATOR = id("large_solar_neutron_activator");
+    private static final ResourceLocation ID_PIGMENT_MIXER = id("large_pigment_mixer");
+
     static final List<MekmmMachineSpec> ALL = List.of(
             nucleosynthesizer(),
             chemicalInfuser(),
