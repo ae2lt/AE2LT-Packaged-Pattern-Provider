@@ -9,7 +9,6 @@ import java.util.Objects;
 import org.jetbrains.annotations.Nullable;
 
 import net.minecraft.core.NonNullList;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.Item;
@@ -35,6 +34,7 @@ import appeng.api.stacks.KeyCounter;
 import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
 import com.moakiee.ae2lt.packaged.patternprovider.OverloadPatternSemantics;
 import com.moakiee.ae2lt.packaged.item.AdapterIds;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterRecipeTypes;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchPlan;
 import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterBlocks;
 import com.moakiee.ae2lt.packaged.logic.multiblock.VirtualCraftingAdapter;
@@ -74,13 +74,20 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
         if (spec == null) {
             return AdapterIds.AVARITIA_SCULK_TABLE;
         }
-        return switch (spec.tier()) {
-            case 1 -> AdapterIds.AVARITIA_SCULK_TABLE;
-            case 2 -> AdapterIds.AVARITIA_NETHER_TABLE;
-            case 3 -> AdapterIds.AVARITIA_END_TABLE;
-            case 4 -> AdapterIds.AVARITIA_EXTREME_TABLE;
-            default -> AdapterIds.AVARITIA_SCULK_TABLE;
-        };
+        // Mapped by block identity, not tier: since 1.4.1 both the END and
+        // the EXTREME table run tier-4 recipes, so the tier no longer
+        // identifies the table type (and its unlock item).
+        var blockId = spec.blockId();
+        if (blockId.equals(NETHER_TABLE_BLOCK)) {
+            return AdapterIds.AVARITIA_NETHER_TABLE;
+        }
+        if (blockId.equals(END_TABLE_BLOCK)) {
+            return AdapterIds.AVARITIA_END_TABLE;
+        }
+        if (blockId.equals(EXTREME_TABLE_BLOCK)) {
+            return AdapterIds.AVARITIA_EXTREME_TABLE;
+        }
+        return AdapterIds.AVARITIA_SCULK_TABLE;
     }
 
     @Override
@@ -675,7 +682,7 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
         if (!recipeTypeLookupDone) {
             synchronized (AvaritiaTableAdapter.class) {
                 if (!recipeTypeLookupDone) {
-                    type = BuiltInRegistries.RECIPE_TYPE.getOptional(RECIPE_TYPE_ID).orElse(null);
+                    type = AdapterRecipeTypes.find(RECIPE_TYPE_ID);
                     cachedRecipeType = type;
                     recipeTypeLookupDone = true;
                 }
@@ -690,17 +697,27 @@ public final class AvaritiaTableAdapter implements VirtualCraftingAdapter {
     @Nullable
     private static TableSpec tableSpec(BlockState state) {
         var id = blockId(state);
+        // Grid sizes and tiers must match Re-Avaritia 1.4.1 exactly:
+        // ModCraftTier sizes are SCULK 5x5, NETHER 7x7, END 9x9 and EXTREME
+        // 11x11 (TierCraftTile creates a size*size inventory), and
+        // ShapedTableCraftingRecipe#getTierFromGridSize derives the tier a
+        // recipe must declare from the slot count: 9->1, 25->2, 49->3 and
+        // >=81->4 — so both the END and the EXTREME table run tier-4
+        // recipes, while EXTREME additionally fits tier-0 patterns up to
+        // 11x11. The old 3/5/7/9 mapping undersized every grid, which made
+        // sculk and end recipes (whose patterns no longer fit) unusable
+        // through automation while nether/extreme kept working by accident.
         if (id.equals(SCULK_TABLE_BLOCK)) {
-            return new TableSpec(SCULK_TABLE_BLOCK, 3, 1);
+            return new TableSpec(SCULK_TABLE_BLOCK, 5, 2);
         }
         if (id.equals(NETHER_TABLE_BLOCK)) {
-            return new TableSpec(NETHER_TABLE_BLOCK, 5, 2);
+            return new TableSpec(NETHER_TABLE_BLOCK, 7, 3);
         }
         if (id.equals(END_TABLE_BLOCK)) {
-            return new TableSpec(END_TABLE_BLOCK, 7, 3);
+            return new TableSpec(END_TABLE_BLOCK, 9, 4);
         }
         if (id.equals(EXTREME_TABLE_BLOCK)) {
-            return new TableSpec(EXTREME_TABLE_BLOCK, 9, 4);
+            return new TableSpec(EXTREME_TABLE_BLOCK, 11, 4);
         }
         return null;
     }

@@ -11,7 +11,6 @@ import java.util.function.Predicate;
 import org.jetbrains.annotations.Nullable;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.Container;
@@ -24,6 +23,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.fml.ModList;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
 
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterRecipeTypes;
 import com.moakiee.ae2lt.packaged.logic.multiblock.BlockCapabilities;
 import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterBlocks;
 import net.minecraftforge.items.IItemHandler;
@@ -588,15 +588,14 @@ public final class ArsNouveauImbuementChamberAdapter implements MultiblockAdapte
             return registryRecipes;
         }
 
-        return BuiltInRegistries.RECIPE_TYPE.getOptional(RECIPE_TYPE_ID)
-                .map(type -> recipesForType(level, type))
-                .orElse(List.of());
+        var type = AdapterRecipeTypes.find(RECIPE_TYPE_ID);
+        if (type == null) {
+            return List.of();
+        }
+        return (List<Recipe<?>>) (List<?>) level.getRecipeManager()
+                .getAllRecipesFor((RecipeType) type);
     }
 
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private static List<Recipe<?>> recipesForType(ServerLevel level, RecipeType<?> type) {
-        return (List<Recipe<?>>) (List<?>) level.getRecipeManager().getAllRecipesFor((RecipeType) type);
-    }
 
     private static boolean isArsLoaded() {
         return ModList.get().isLoaded(MOD_ID);

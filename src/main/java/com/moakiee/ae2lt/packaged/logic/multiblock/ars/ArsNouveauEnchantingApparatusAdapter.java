@@ -12,7 +12,6 @@ import org.jetbrains.annotations.Nullable;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.RegistryAccess;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.Container;
@@ -33,6 +32,7 @@ import appeng.api.stacks.GenericStack;
 import appeng.api.stacks.KeyCounter;
 
 import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterRecipeTypes;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchPlan;
 import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterBlocks;
 import com.moakiee.ae2lt.packaged.logic.multiblock.InsertionStrategy;
@@ -462,8 +462,10 @@ public final class ArsNouveauEnchantingApparatusAdapter implements MultiblockAda
 
         var recipes = new ArrayList<Recipe<?>>();
         for (var id : FALLBACK_RECIPE_TYPES) {
-            BuiltInRegistries.RECIPE_TYPE.getOptional(id)
-                    .ifPresent(type -> recipes.addAll(recipesForType(level, type)));
+            var type = AdapterRecipeTypes.find(id);
+            if (type != null) {
+                recipes.addAll(recipesForType(level, type));
+            }
         }
         return recipes;
     }

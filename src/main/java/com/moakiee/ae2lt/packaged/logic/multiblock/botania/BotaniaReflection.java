@@ -46,6 +46,8 @@ public final class BotaniaReflection {
             "vazkii.botania.common.block.block_entity.AlfheimPortalBlockEntity";
     private static final String CLS_RUNIC_ALTAR_BE =
             "vazkii.botania.common.block.block_entity.RunicAltarBlockEntity";
+    private static final String CLS_RUNE_ITEM =
+            "vazkii.botania.common.item.material.RuneItem";
     private static final String CLS_TERRA_PLATE_BE =
             "vazkii.botania.common.block.block_entity.TerrestrialAgglomerationPlateBlockEntity";
 
@@ -103,6 +105,7 @@ public final class BotaniaReflection {
     @Nullable private static volatile Class<?> stateIngredientClass;
     @Nullable private static volatile Class<?> recipeWithReagentClass;
     @Nullable private static volatile Class<?> recipeWithCatalystsClass;
+    @Nullable private static volatile Class<?> runeItemClass;
 
     // Method handles
     @Nullable private static volatile Method getCurrentMana;          // ManaReceiver
@@ -113,7 +116,6 @@ public final class BotaniaReflection {
     @Nullable private static volatile Method apothecaryGetFluid;
     @Nullable private static volatile Method apothecarySetFluid;
     @Nullable private static volatile Method simpleBeGetItemHandler;  // SimpleInventoryBlockEntity
-    @Nullable private static volatile Method simpleBeGetContainer;  // SimpleInventoryBlockEntity
     @Nullable private static volatile Method stateIngredientTest;     // StateIngredient.test(BlockState)
     @Nullable private static volatile Method reagentGetReagent;       // RecipeWithReagent.getReagent()
     @Nullable private static volatile Method catalystsGetCatalysts;   // RecipeWithCatalysts.getCatalysts()
@@ -187,6 +189,7 @@ public final class BotaniaReflection {
         petalApothecaryStateClass = tryClass(CLS_PETAL_APOTHECARY_STATE);
         alfheimPortalStateClass = tryClass(CLS_ALFHEIM_PORTAL_STATE);
         terraPlateStateClass = tryClass(CLS_TERRA_PLATE_STATE);
+        runeItemClass = tryClass(CLS_RUNE_ITEM);
 
         boolean available_ = !isMissing(
                 CLS_MANA_POOL_BE, manaPoolBeClass,
@@ -224,7 +227,6 @@ public final class BotaniaReflection {
         apothecarySetFluid = tryMethod(petalApothecaryIfaceClass, "setFluid", petalApothecaryStateClass);
 
         simpleBeGetItemHandler = tryMethod(simpleInventoryBeClass, "getItemHandler");
-        simpleBeGetContainer = tryMethod(simpleInventoryBeClass, "getRecipeInput");
 
         stateIngredientTest = tryMethod(stateIngredientClass, "test", BlockState.class);
         reagentGetReagent = tryMethod(recipeWithReagentClass, "getReagent");
@@ -562,21 +564,6 @@ public final class BotaniaReflection {
     }
 
     /**
-     * Returns the live {@link Container} backing the BE's inventory.
-     * Cast freely to {@link Recipe#matches(Container, net.minecraft.world.level.Level) Recipe.matches}'s
-     * concrete input type at the call site.
-     */
-    @Nullable
-    public static Container simpleInventoryRecipeContainer(BlockEntity be) {
-        try {
-            var v = simpleBeGetContainer.invoke(be);
-            return v instanceof Container input ? input : null;
-        } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
-            return null;
-        }
-    }
-
-    /**
      * Constructs a Botania {@code ProcessingContainer} backed by the
      * given stack array. Returned object passes
      * {@code Recipe.matches(ProcessingContainer, Level)} for all
@@ -723,55 +710,15 @@ public final class BotaniaReflection {
     }
 
     /**
-     * Reflectively calls {@code recipe.getRemainingItems(input)},
-     * returning the per-slot list of "items the recipe consumes but
-     * leaves in the inventory" (Botania uses this for catalysts).
-     * Returns an empty list on any failure so the adapter can fall
-     * back to "no catalysts to reclaim" without crashing.
+     * True when the item is a Botania {@code RuneItem}. The runic altar's
+     * post-craft refund rule (1.20.x {@code RunicAltarBlockEntity#onUsedByWand})
+     * is "every {@code RuneItem} stack in the altar comes back, everything
+     * else is consumed" &mdash; adapters replicate that rule for their virtual
+     * extract. Returns false when Botania is absent or the class moved.
      */
-    public static java.util.List<net.minecraft.world.item.ItemStack>
-            recipeRemainingItems(Object recipe, net.minecraft.world.Container input) {
-        try {
-            var m = ReflectionSupport.findMethodCached(recipe.getClass(), "getRemainingItems", input.getClass())
-                    .orElse(null);
-            if (m == null) {
-                throw new NoSuchMethodException();
-            }
-            var v = m.invoke(recipe, input);
-            if (v instanceof java.util.List<?> list) {
-                var out = new java.util.ArrayList<net.minecraft.world.item.ItemStack>(list.size());
-                for (var entry : list) {
-                    if (entry instanceof net.minecraft.world.item.ItemStack stack) {
-                        out.add(stack);
-                    }
-                }
-                return out;
-            }
-            return java.util.List.of();
-        } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
-            // Try the more generic Container overload (matches the bridge
-            // method generated by the parameterised Recipe interface).
-            try {
-                var m = ReflectionSupport.findMethodCached(recipe.getClass(), "getRemainingItems",
-                        net.minecraft.world.Container.class).orElse(null);
-                if (m == null) {
-                    return java.util.List.of();
-                }
-                var v = m.invoke(recipe, input);
-                if (v instanceof java.util.List<?> list) {
-                    var out = new java.util.ArrayList<net.minecraft.world.item.ItemStack>(list.size());
-                    for (var entry : list) {
-                        if (entry instanceof net.minecraft.world.item.ItemStack stack) {
-                            out.add(stack);
-                        }
-                    }
-                    return out;
-                }
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored2) {
-                // Fall through.
-            }
-            return java.util.List.of();
-        }
+    public static boolean isRuneItem(net.minecraft.world.item.Item item) {
+        var c = runeItemClass;
+        return c != null && c.isInstance(item);
     }
 
     @SuppressWarnings("unused")

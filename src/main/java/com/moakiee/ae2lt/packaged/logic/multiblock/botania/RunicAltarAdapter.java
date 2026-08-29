@@ -43,26 +43,26 @@ import com.moakiee.ae2lt.packaged.logic.multiblock.binding.BindingResult;
  * synthesise the output stack from the recipe and reset altar state
  * directly without waiting for the player to right-click with a wand).
  *
- * <p><b>Recipe shape:</b> Botania's {@code RunicAltarRecipe}
- * implements both {@code RecipeWithReagent} and
- * {@code RecipeWithCatalysts}. Three logical input groups:
+ * <p><b>Recipe shape:</b> Botania 1.20.x's {@code RunicAltarRecipe}
+ * implements {@code RecipeWithReagent} only. Two logical input
+ * groups:
  * <ol>
- *   <li><b>ingredients</b> ({@code getIngredients()}) &mdash; runes,
- *       petals, dusts that are <i>consumed</i> by the craft.</li>
- *   <li><b>catalysts</b> ({@code getCatalysts()}) &mdash; helper
- *       runes that sit in the inventory alongside the ingredients
- *       and are <i>returned</i> after the craft (via
- *       {@code getRemainingItems(input)}).</li>
+ *   <li><b>ingredients</b> ({@code getIngredients()}) &mdash; petals,
+ *       dusts and any runes the recipe lists. Everything here goes
+ *       into the altar inventory; after the craft the tile refunds
+ *       every {@code RuneItem} stack (see {@code onUsedByWand}) and
+ *       consumes the rest.</li>
  *   <li><b>reagent</b> ({@code getReagent()}, always livingrock)
  *       &mdash; tossed as a player-held item / on-altar
  *       {@code ItemEntity} to trigger the craft. <i>Never</i> placed
  *       in the altar inventory.</li>
  * </ol>
- * <p>Botania's {@code matches()} requires
- * {@code input.size() == ingredients.size() + catalysts.size()} (no
- * more, no less). Dispatching the reagent into a slot, or omitting
- * the catalysts, would make {@code updateRecipe()} fail and the altar
- * would sit idle forever.
+ * <p>Botania's {@code matches()} (via {@code RecipeUtils.matches})
+ * fails if the inventory holds a stack no ingredient accepts, and it
+ * stops scanning at the first empty slot. Dispatching the reagent
+ * into a slot, or writing the inventory non-contiguously from slot
+ * 0, would make {@code updateRecipe()} fail and the altar would sit
+ * idle forever.
  *
  * <p><b>Reagent semantics in vanilla:</b> the player places the
  * ingredients + catalysts into the altar inventory (right-clicks =
@@ -84,14 +84,14 @@ import com.moakiee.ae2lt.packaged.logic.multiblock.binding.BindingResult;
  *       livingrock from the AE {@link KeyCounter} <i>without</i>
  *       placing it anywhere &mdash; this models the player consuming
  *       a livingrock to trigger the craft.</li>
- *   <li><b>extract (VIRTUAL)</b>: when
- *       {@code currentRecipe != null && mana >= manaToGet}, we
- *       assemble the output, reflectively call
- *       {@code recipe.getRemainingItems(getRecipeInput())} to gather
- *       the catalysts that have to flow back to the network, clear
- *       the inventory, zero the mana fields and drop
- *       {@code currentRecipe} back to null. The player sees the
- *       altar animate once but never needs to swing a wand.</li>
+ *   <li><b>extract (VIRTUAL)</b>: when the altar signals ready
+ *       ({@code mana >= manaToGet}, with the recipe resolved from the
+ *       recipe manager &mdash; 1.20.x's {@code currentRecipe} field
+ *       is vestigial and never assigned), we assemble the output,
+ *       snapshot the {@code RuneItem} stacks for refund (Botania's
+ *       own refund rule), clear the inventory, zero the mana fields
+ *       and drop {@code currentRecipe} back to null. The player sees
+ *       the altar animate once but never needs to swing a wand.</li>
  * </ul>
  *
  * <p>Batch policy: K=1 only. The altar's internal state machine runs
@@ -385,7 +385,20 @@ public final class RunicAltarAdapter implements MultiblockAdapter {
         if (!BotaniaReflection.isRunicAltar(be)) {
             return List.of();
         }
+        var inv = BotaniaReflection.simpleInventoryContainer(be);
+        if (inv == null || containerEmpty(inv)) {
+            return List.of();
+        }
+        // Botania 1.20.x never assigns RunicAltarBlockEntity#currentRecipe:
+        // updateRecipe() and onUsedByWand() resolve the active recipe from
+        // the recipe manager every time and the field is only ever written
+        // back to null. Gating on the cached field read would stall the
+        // altar forever (the player's manual wand works because the tile
+        // itself re-resolves). Mirror the tile's fallback instead.
         var currentRecipe = BotaniaReflection.altarCurrentRecipe(be);
+        if (currentRecipe == null) {
+            currentRecipe = BotaniaRecipeLookup.findRunicAltarMatch(level, inv);
+        }
         if (currentRecipe == null) {
             return List.of();
         }
@@ -417,30 +430,27 @@ public final class RunicAltarAdapter implements MultiblockAdapter {
         }
         var resultKey = AEItemKey.of(result);
         // No AllowedOutputFilter check here. The altar is a closed-loop
-        // BE we dispatched into ourselves: the {@code currentRecipe} is
-        // strictly the one we matched at bind time (the BE only assigns
-        // it via {@code updateRecipe} from its own inventory, which we
-        // wrote), and the catalyst stacks are pulled directly via
-        // {@code RunicAltarRecipe.getRemainingItems(input)}. There is no
+        // BE we dispatched into ourselves: the recipe resolved from the
+        // live inventory is strictly the one we matched at bind time
+        // (the BE only ever holds what we wrote, and the tile's own
+        // recipe resolution is inventory-driven), and the rune refunds
+        // are the live RuneItem stacks the inventory holds. There is no
         // "shared inventory / broad dropped-item area" the filter would
         // be defending against here, and the bind-time
         // {@code validatePatternRunicOutputs} already enforces the
         // pattern-output allow-list.
 
-        // Snapshot catalysts (copies) BEFORE clearing the inventory:
-        // RunicAltarRecipe.getRemainingItems(input) consults the live
-        // input but copies each catalyst stack it returns, so doing
-        // this before clearContent() is the safe order even though the
-        // returned stacks themselves don't alias the inventory.
-        var catalystStacks = collectCatalystStacks(currentRecipe, be);
+        // Snapshot the rune refunds (copies) BEFORE clearing the inventory.
+        // Botania 1.20.x does not model catalysts via getRemainingItems:
+        // its own onUsedByWand hands back every RuneItem stack sitting in
+        // the altar and consumes everything else, so replicating that rule
+        // exactly is the item-conservation contract for the virtual extract.
+        var catalystStacks = collectRuneRefunds(inv);
 
         // Virtual extract: clear inventory + reset state instead of
         // waiting for the player to right-click. The altar's animation
         // had already played for the player to see the cycle.
-        var inv = BotaniaReflection.simpleInventoryContainer(be);
-        if (inv != null) {
-            inv.clearContent();
-        }
+        inv.clearContent();
         BotaniaReflection.altarResetState(be);
         be.setChanged();
         // Clear the dispatch flag now that this craft is fully harvested,
@@ -487,19 +497,22 @@ public final class RunicAltarAdapter implements MultiblockAdapter {
     }
 
     /**
-     * Reflectively pulls {@code recipe.getRemainingItems(getRecipeInput())}
-     * out of the altar so any catalysts &mdash; e.g. the {@code rune_winter}
-     * + {@code rune_fire} that gluttony uses &mdash; flow back to the AE
-     * network instead of being voided when we clear the inventory.
-     * Empty entries are discarded by the caller.
+     * Snapshots (as copies) every {@code RuneItem} stack currently sitting
+     * in the altar inventory. Botania 1.20.x's {@code onUsedByWand} refunds
+     * exactly those after a craft and consumes the rest, so this is the
+     * refund rule the virtual extract has to honour &mdash; e.g. the
+     * higher-tier runes that lower-tier rune recipes list as inputs flow
+     * back to the AE network instead of being voided when we clear.
      */
-    private static List<ItemStack> collectCatalystStacks(
-            net.minecraft.world.item.crafting.Recipe<?> recipe, BlockEntity be) {
-        var input = BotaniaReflection.simpleInventoryRecipeContainer(be);
-        if (input == null) {
-            return List.of();
+    private static List<ItemStack> collectRuneRefunds(Container inv) {
+        var refunds = new ArrayList<ItemStack>();
+        for (int i = 0; i < inv.getContainerSize(); i++) {
+            var stack = inv.getItem(i);
+            if (!stack.isEmpty() && BotaniaReflection.isRuneItem(stack.getItem())) {
+                refunds.add(stack.copy());
+            }
         }
-        return BotaniaReflection.recipeRemainingItems(recipe, input);
+        return refunds;
     }
 
     // allowsAutoReturn intentionally not overridden. Default {@code true}

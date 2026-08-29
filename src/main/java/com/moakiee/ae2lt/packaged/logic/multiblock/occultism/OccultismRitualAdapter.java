@@ -34,6 +34,7 @@ import appeng.api.stacks.GenericStack;
 import appeng.api.stacks.KeyCounter;
 
 import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterRecipeTypes;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchPlan;
 import com.moakiee.ae2lt.packaged.logic.multiblock.InsertionStrategy;
 import com.moakiee.ae2lt.packaged.logic.multiblock.MultiblockAdapter;
@@ -644,16 +645,14 @@ public final class OccultismRitualAdapter implements MultiblockAdapter {
     }
 
     private static List<Recipe<?>> recipes(ServerLevel level) {
-        return BuiltInRegistries.RECIPE_TYPE.getOptional(RITUAL_RECIPE_TYPE)
-                .map(type -> recipesForType(level, type))
-                .orElse(List.of());
-    }
-
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private static List<Recipe<?>> recipesForType(ServerLevel level, RecipeType<?> type) {
+        var type = AdapterRecipeTypes.find(RITUAL_RECIPE_TYPE);
+        if (type == null) {
+            return List.of();
+        }
         return (List<Recipe<?>>) (List<?>) level.getRecipeManager()
                 .getAllRecipesFor((RecipeType) type);
     }
+
 
     private static boolean isOccultismLoaded() {
         return ModList.get().isLoaded(MOD_ID);
@@ -710,7 +709,6 @@ public final class OccultismRitualAdapter implements MultiblockAdapter {
         private static volatile @Nullable Method getCurrentRitualRecipeMethod;
         private static volatile @Nullable Field itemStackHandlerField;
         private static volatile @Nullable Method getActivationItemMethod;
-        private static volatile @Nullable Method getIngredientsMethod;
         private static volatile @Nullable Method getRitualTypeMethod;
         private static volatile @Nullable Method requiresSacrificeMethod;
         private static volatile @Nullable Method requiresItemUseMethod;
@@ -840,25 +838,24 @@ public final class OccultismRitualAdapter implements MultiblockAdapter {
 
         @Nullable
         static List<Ingredient> getIngredients(Object recipe) {
-            ensureLookup();
-            if (getIngredientsMethod == null) {
+            // Direct vanilla-interface dispatch instead of reflection:
+            // getIngredients() overrides a net.minecraft method, so in a
+            // production (reobfuscated) jar the implementing method is
+            // renamed to its SRG name and lookups by the mojmap name fail
+            // even though the method exists. Calling through the erased
+            // Recipe interface is compile-time-reobfuscated on our side and
+            // therefore always resolves.
+            if (!(recipe instanceof Recipe<?> vanillaRecipe)) {
                 return null;
             }
             try {
-                var value = getIngredientsMethod.invoke(recipe);
-                if (!(value instanceof List<?> list)) {
-                    return null;
-                }
-
-                var result = new ArrayList<Ingredient>(list.size());
-                for (var item : list) {
-                    if (!(item instanceof Ingredient ingredient)) {
-                        return null;
-                    }
+                var value = vanillaRecipe.getIngredients();
+                var result = new ArrayList<Ingredient>(value.size());
+                for (Ingredient ingredient : value) {
                     result.add(ingredient);
                 }
                 return List.copyOf(result);
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+            } catch (RuntimeException | LinkageError ignored) {
                 return null;
             }
         }
@@ -951,7 +948,6 @@ public final class OccultismRitualAdapter implements MultiblockAdapter {
             }
             if (ritualRecipeClass != null) {
                 getActivationItemMethod = tryMethod(ritualRecipeClass, "getActivationItem");
-                getIngredientsMethod = tryMethod(ritualRecipeClass, "getIngredients");
                 getRitualTypeMethod = tryMethod(ritualRecipeClass, "getRitualType");
                 requiresSacrificeMethod = tryMethod(ritualRecipeClass, "requiresSacrifice");
                 requiresItemUseMethod = tryMethod(ritualRecipeClass, "requiresItemUse");

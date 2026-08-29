@@ -26,10 +26,10 @@
       "tag": "botania:petals"
     },
     {
-      "tag": "c:dusts/mana"
+      "tag": "forge:dusts/mana"
     },
     {
-      "tag": "c:dusts/mana"
+      "tag": "forge:dusts/mana"
     }
   ],
   "output": {

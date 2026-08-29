@@ -426,7 +426,6 @@ public final class DraconicFusionCraftingAdapter implements MultiblockAdapter {
         private static volatile @Nullable Method fusionIngredientsMethod;
         private static volatile @Nullable Method getCatalystMethod;
         private static volatile @Nullable Method getRecipeTierMethod;
-        private static volatile @Nullable Method getResultItemMethod;
         private static volatile @Nullable Method ingredientGetMethod;
         private static volatile @Nullable Method ingredientConsumeMethod;
         private static volatile @Nullable Field techLevelIndexField;
@@ -623,14 +622,20 @@ public final class DraconicFusionCraftingAdapter implements MultiblockAdapter {
 
         @Nullable
         static ItemStack getResultItem(Object recipe, ServerLevel level) {
-            ensureLookup();
-            if (getResultItemMethod == null) return null;
+            // Direct vanilla-interface dispatch instead of reflection:
+            // FusionRecipe.getResultItem(RegistryAccess) overrides a
+            // net.minecraft method, so a production (reobfuscated) jar renames
+            // the implementation to its SRG name and getMethod lookups by the
+            // mojmap name fail even though the method exists. Calling through
+            // the erased Recipe interface is compile-time-reobfuscated on our
+            // side and dispatches to DE's override correctly.
+            if (!(recipe instanceof Recipe<?> vanillaRecipe)) {
+                return null;
+            }
             try {
-                var result = getResultItemMethod.getParameterCount() == 0
-                        ? getResultItemMethod.invoke(recipe)
-                        : getResultItemMethod.invoke(recipe, level.registryAccess());
-                return result instanceof ItemStack s ? s.copy() : null;
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+                var result = vanillaRecipe.getResultItem(level.registryAccess());
+                return result != null && !result.isEmpty() ? result.copy() : null;
+            } catch (RuntimeException | LinkageError e) {
                 return null;
             }
         }
@@ -710,22 +715,11 @@ public final class DraconicFusionCraftingAdapter implements MultiblockAdapter {
                 fusionIngredientsMethod = recipeClass.getMethod("fusionIngredients");
                 getCatalystMethod = recipeClass.getMethod("getCatalyst");
                 getRecipeTierMethod = recipeClass.getMethod("getRecipeTier");
-                // FusionRecipe overrides getResultItem(RegistryAccess) — the plain
-                // no-arg Recipe#getResultItem is NOT overridden and returns EMPTY,
-                // which silently rejected every recipe at bind time. Resolve the
-                // RegistryAccess overload first (1.20.x), then the 1.20.5+
-                // HolderLookup.Provider overload, then fall back to no-arg.
-                try {
-                    getResultItemMethod = recipeClass.getMethod("getResultItem",
-                            net.minecraft.core.RegistryAccess.class);
-                } catch (NoSuchMethodException noRegistryAccessOverload) {
-                    try {
-                        getResultItemMethod = recipeClass.getMethod("getResultItem",
-                                net.minecraft.core.HolderLookup.Provider.class);
-                    } catch (NoSuchMethodException noProviderOverload) {
-                        getResultItemMethod = recipeClass.getMethod("getResultItem");
-                    }
-                }
+                // getResultItem is NOT resolved reflectively: it overrides a
+                // vanilla Recipe method and is renamed to its SRG name in a
+                // production jar, so getMethod("getResultItem", ...) fails.
+                // DEReflection.getResultItem calls the vanilla interface
+                // directly instead, which is reobf-safe.
             } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
                 LOG.warn("[ae2ltpp] DE fusion: failed to resolve IFusionRecipe members: {}", e.getMessage());
             }
