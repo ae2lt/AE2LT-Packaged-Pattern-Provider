@@ -11,7 +11,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
@@ -34,6 +33,7 @@ import appeng.api.stacks.KeyCounter;
 import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
 import com.moakiee.ae2lt.packaged.patternprovider.OverloadPatternSemantics;
 import com.moakiee.ae2lt.packaged.item.AdapterIds;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterRecipeTypes;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchPlan;
 import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterBlocks;
 import com.moakiee.ae2lt.packaged.logic.multiblock.InsertionStrategy;
@@ -351,10 +351,12 @@ public final class ExtendedCraftingCombinationAdapter implements MultiblockAdapt
 
     @SuppressWarnings({"rawtypes", "unchecked"})
     private static List<Recipe<?>> recipes(ServerLevel level) {
-        return BuiltInRegistries.RECIPE_TYPE.getOptional(RECIPE_TYPE_ID)
-                .map(type -> (List<Recipe<?>>) (List<?>) level.getRecipeManager()
-                        .getAllRecipesFor((RecipeType) type))
-                .orElse(List.of());
+        var type = AdapterRecipeTypes.find(RECIPE_TYPE_ID);
+        if (type == null) {
+            return List.of();
+        }
+        return (List<Recipe<?>>) (List<?>) level.getRecipeManager()
+                .getAllRecipesFor((RecipeType) type);
     }
 
     private static boolean isEcLoaded() {

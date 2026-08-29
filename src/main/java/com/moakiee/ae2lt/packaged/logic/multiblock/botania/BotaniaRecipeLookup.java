@@ -7,6 +7,7 @@ import java.util.Optional;
 import org.jetbrains.annotations.Nullable;
 
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.Container;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
@@ -272,6 +273,33 @@ public final class BotaniaRecipeLookup {
             var catalysts = BotaniaReflection.recipeCatalysts(recipe);
             if (validatePatternRunicOutputs(pattern, result, catalysts)) {
                 return recipe;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Mirrors the altar tile's own recipe resolution ({@code updateRecipe} /
+     * {@code onUsedByWand} fall back to
+     * {@code getRecipeFor(RUNE_TYPE, inventory, level)}): the first runic
+     * altar recipe whose {@code matches} accepts the live altar inventory.
+     *
+     * <p>This exists because Botania 1.20.x never assigns
+     * {@code RunicAltarBlockEntity#currentRecipe} &mdash; the field is only
+     * ever read (and reset to null after a craft), so a cached field read
+     * from our extract scan is always null. Calling
+     * {@code recipe.matches} directly through the vanilla {@link Recipe}
+     * interface is SRG-safe: the call site is reobfuscated at build time.
+     */
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public static Recipe<?> findRunicAltarMatch(ServerLevel level, Container inventory) {
+        for (var recipe : recipesOf(level, BotaniaReflection.runeType())) {
+            try {
+                if (((Recipe) recipe).matches(inventory, level)) {
+                    return recipe;
+                }
+            } catch (RuntimeException | LinkageError ignored) {
+                // Malformed third-party recipe; try the next one.
             }
         }
         return null;

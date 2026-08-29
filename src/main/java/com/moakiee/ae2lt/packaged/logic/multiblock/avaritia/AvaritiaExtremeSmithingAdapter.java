@@ -1,7 +1,6 @@
 package com.moakiee.ae2lt.packaged.logic.multiblock.avaritia;
 
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -9,7 +8,6 @@ import java.util.Objects;
 
 import org.jetbrains.annotations.Nullable;
 
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.Item;
@@ -31,6 +29,7 @@ import appeng.api.stacks.KeyCounter;
 import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
 import com.moakiee.ae2lt.packaged.patternprovider.OverloadPatternSemantics;
 import com.moakiee.ae2lt.packaged.item.AdapterIds;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterRecipeTypes;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchPlan;
 import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterBlocks;
 import com.moakiee.ae2lt.packaged.logic.multiblock.VirtualCraftingAdapter;
@@ -364,10 +363,12 @@ public final class AvaritiaExtremeSmithingAdapter implements VirtualCraftingAdap
 
     @SuppressWarnings({"rawtypes", "unchecked"})
     private static List<Recipe<?>> recipes(ServerLevel level) {
-        return BuiltInRegistries.RECIPE_TYPE.getOptional(RECIPE_TYPE_ID)
-                .map(type -> (List<Recipe<?>>) (List<?>) level.getRecipeManager()
-                        .getAllRecipesFor((RecipeType) type))
-                .orElse(List.of());
+        var type = AdapterRecipeTypes.find(RECIPE_TYPE_ID);
+        if (type == null) {
+            return List.of();
+        }
+        return (List<Recipe<?>>) (List<?>) level.getRecipeManager()
+                .getAllRecipesFor((RecipeType) type);
     }
 
     private static boolean isAvaritiaLoaded() {
@@ -402,9 +403,6 @@ public final class AvaritiaExtremeSmithingAdapter implements VirtualCraftingAdap
         private static volatile @Nullable Field templateField;
         private static volatile @Nullable Field baseField;
         private static volatile @Nullable Field additionsField;
-        private static volatile @Nullable Method isTemplateIngredientMethod;
-        private static volatile @Nullable Method isBaseIngredientMethod;
-        private static volatile @Nullable Method isAdditionIngredientMethod;
 
         /**
          * 1.20.1 has no {@code ExtremeSmithingRecipeInput} (a 1.20.5+ class);
@@ -422,15 +420,15 @@ public final class AvaritiaExtremeSmithingAdapter implements VirtualCraftingAdap
         }
 
         static boolean matchesTemplate(Object recipe, ItemStack stack) {
-            return invokeIngredientMatcher(isTemplateIngredientMethod, recipe, stack);
+            return fieldIngredientTest(templateField, recipe, stack);
         }
 
         static boolean matchesBase(Object recipe, ItemStack stack) {
-            return invokeIngredientMatcher(isBaseIngredientMethod, recipe, stack);
+            return fieldIngredientTest(baseField, recipe, stack);
         }
 
         static boolean matchesAddition(Object recipe, ItemStack stack) {
-            return invokeIngredientMatcher(isAdditionIngredientMethod, recipe, stack);
+            return fieldIngredientTest(additionsField, recipe, stack);
         }
 
         static boolean templateAcceptsItemId(Object recipe, Item item) {
@@ -459,6 +457,30 @@ public final class AvaritiaExtremeSmithingAdapter implements VirtualCraftingAdap
             }
         }
 
+        /**
+         * Ingredient.test against the recipe's public {@code template}/{@code
+         * base}/{@code additions} field. The isXxxIngredient methods cannot be
+         * used here: they override Forge's net.minecraft-hosted SmithingRecipe
+         * interface, whose members are part of the SRG mapping, so a
+         * production (reobfuscated) jar renames the implementations and
+         * reflective lookups by the mojmap name fail (observed as a
+         * NoSuchMethodException at runtime). The fields are Avaritia-own
+         * members and keep their names; the Avaritia overrides are exactly
+         * {@code field.test(stack)}, so testing the field directly preserves
+         * the semantics.
+         */
+        private static boolean fieldIngredientTest(@Nullable Field field, Object recipe, ItemStack stack) {
+            var ingredient = readIngredient(field, recipe);
+            if (ingredient == null) {
+                return false;
+            }
+            try {
+                return ingredient.test(stack);
+            } catch (RuntimeException | LinkageError ignored) {
+                return false;
+            }
+        }
+
         private static boolean ingredientAcceptsItemId(@Nullable Ingredient ingredient, Item item) {
             if (ingredient == null) {
                 return false;
@@ -472,19 +494,6 @@ public final class AvaritiaExtremeSmithingAdapter implements VirtualCraftingAdap
             } catch (RuntimeException | LinkageError ignored) {
             }
             return false;
-        }
-
-        private static boolean invokeIngredientMatcher(@Nullable Method method, Object recipe, ItemStack stack) {
-            ensureLookup();
-            if (method == null || !method.getDeclaringClass().isInstance(recipe)) {
-                return false;
-            }
-            try {
-                var value = method.invoke(recipe, stack);
-                return value instanceof Boolean b && b;
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
-                return false;
-            }
         }
 
         private static void ensureLookup() {
@@ -506,9 +515,6 @@ public final class AvaritiaExtremeSmithingAdapter implements VirtualCraftingAdap
                 templateField = recipeClass.getField("template");
                 baseField = recipeClass.getField("base");
                 additionsField = recipeClass.getField("additions");
-                isTemplateIngredientMethod = recipeClass.getMethod("isTemplateIngredient", ItemStack.class);
-                isBaseIngredientMethod = recipeClass.getMethod("isBaseIngredient", ItemStack.class);
-                isAdditionIngredientMethod = recipeClass.getMethod("isAdditionIngredient", ItemStack.class);
             } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
                 LOG.warn("[ae2ltpp] Avaritia ExtremeSmithingRecipe member lookup failed: {}", e.toString());
             }

@@ -12,7 +12,6 @@ import java.util.function.BiFunction;
 import org.jetbrains.annotations.Nullable;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
@@ -33,6 +32,7 @@ import appeng.api.stacks.GenericStack;
 import appeng.api.stacks.KeyCounter;
 
 import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterRecipeTypes;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchPlan;
 import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterBlocks;
 import com.moakiee.ae2lt.packaged.logic.multiblock.InsertionStrategy;
@@ -545,10 +545,12 @@ public final class AwakeningAltarAdapter implements MultiblockAdapter {
 
     @SuppressWarnings({"rawtypes", "unchecked"})
     private static List<Recipe<?>> recipes(ServerLevel level) {
-        return BuiltInRegistries.RECIPE_TYPE.getOptional(RECIPE_TYPE_ID)
-                .map(type -> (List<Recipe<?>>) (List<?>) level.getRecipeManager()
-                        .getAllRecipesFor((RecipeType) type))
-                .orElse(List.of());
+        var type = AdapterRecipeTypes.find(RECIPE_TYPE_ID);
+        if (type == null) {
+            return List.of();
+        }
+        return (List<Recipe<?>>) (List<?>) level.getRecipeManager()
+                .getAllRecipesFor((RecipeType) type);
     }
 
     private static boolean isMaLoaded() {
@@ -603,7 +605,6 @@ public final class AwakeningAltarAdapter implements MultiblockAdapter {
         private static volatile @Nullable Method activateMethod;
         private static volatile @Nullable Method getAltarIngredientMethod;
         private static volatile @Nullable Method getEssencesMethod;
-        private static volatile @Nullable Method getIngredientsMethod;
         private static volatile @Nullable Field progressField;
 
         static boolean isAwakeningAltar(Object o) {
@@ -706,24 +707,24 @@ public final class AwakeningAltarAdapter implements MultiblockAdapter {
         @Nullable
         @SuppressWarnings("unchecked")
         static List<Ingredient> getIngredients(Object recipe) {
-            ensureLookup();
-            if (getIngredientsMethod == null || !(recipe instanceof net.minecraft.world.item.crafting.Recipe<?>)) {
+            // Direct vanilla-interface dispatch instead of reflection:
+            // getIngredients() overrides a net.minecraft method, so a
+            // production (reobfuscated) jar renames the implementing method
+            // to its SRG name and lookups by the mojmap name fail even
+            // though the method exists. Calling through the erased Recipe
+            // interface is compile-time-reobfuscated on our side and
+            // therefore always resolves.
+            if (!(recipe instanceof net.minecraft.world.item.crafting.Recipe<?> vanillaRecipe)) {
                 return null;
             }
             try {
-                var value = getIngredientsMethod.invoke(recipe);
-                if (!(value instanceof List<?> list)) {
-                    return null;
-                }
-                var result = new ArrayList<Ingredient>(list.size());
-                for (var item : list) {
-                    if (!(item instanceof Ingredient ingredient)) {
-                        return null;
-                    }
+                var value = vanillaRecipe.getIngredients();
+                var result = new ArrayList<Ingredient>(value.size());
+                for (Ingredient ingredient : value) {
                     result.add(ingredient);
                 }
                 return result;
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+            } catch (RuntimeException | LinkageError ignored) {
                 return null;
             }
         }
@@ -758,7 +759,10 @@ public final class AwakeningAltarAdapter implements MultiblockAdapter {
             activateMethod = activatableClass.getMethod("activate");
             getAltarIngredientMethod = recipeApiClass.getMethod("getAltarIngredient");
             getEssencesMethod = recipeApiClass.getMethod("getEssences");
-            getIngredientsMethod = net.minecraft.world.item.crafting.Recipe.class.getMethod("getIngredients");
+            // getIngredients is NOT resolved reflectively: it overrides a
+            // vanilla Recipe method and is renamed to its SRG name in a
+            // production jar. getIngredients(...) calls the vanilla
+            // interface directly instead, which is reobf-safe.
 
             progressField = altarClass.getDeclaredField("progress");
             progressField.setAccessible(true);

@@ -14,10 +14,10 @@
       "item": "botania:terrasteel_ingot"
     },
     {
-      "tag": "c:gems/mana_pearl"
+      "item": "botania:mana_pearl"
     },
     {
-      "tag": "c:gems/mana_diamond"
+      "item": "botania:mana_diamond"
     }
   ],
   "mana": 500000,
