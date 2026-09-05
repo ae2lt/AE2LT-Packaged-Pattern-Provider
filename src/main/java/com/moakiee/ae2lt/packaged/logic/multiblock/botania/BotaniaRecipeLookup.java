@@ -6,7 +6,9 @@ import java.util.Optional;
 
 import org.jetbrains.annotations.Nullable;
 
+import net.minecraft.core.RegistryAccess;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.Container;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
@@ -203,8 +205,7 @@ public final class BotaniaRecipeLookup {
         if (patternKey == null) {
             return null;
         }
-        for (var holder : recipesOf(level, BotaniaReflection.manaInfusionType())) {
-            var recipe = holder;
+        for (var recipe : recipesOf(level, BotaniaReflection.manaInfusionType())) {
             var result = safeResult(recipe, level);
             if (result == null || result.isEmpty()) {
                 continue;
@@ -215,7 +216,7 @@ public final class BotaniaRecipeLookup {
             if (!validatePatternOutputKey(pattern, result)) {
                 continue;
             }
-            return holder;
+            return recipe;
         }
         return null;
     }
@@ -224,13 +225,26 @@ public final class BotaniaRecipeLookup {
 
     @Nullable
     public static Recipe<?> findPetalApothecaryByOutput(ServerLevel level, IPatternDetails pattern) {
+        return findPetalApothecaryByOutput(
+                recipesOf(level, BotaniaReflection.petalType()), level.registryAccess(), pattern);
+    }
+
+    /** Select the first output-compatible candidate whose batch inputs are covered. */
+    @Nullable
+    static Recipe<?> findPetalApothecaryByOutput(Iterable<Recipe<?>> recipes,
+                                               RegistryAccess registries, IPatternDetails pattern) {
+        var budget = new PetalApothecaryAdapter.SearchBudget();
         var patternKey = patternPrimaryOutputKey(pattern).orElse(null);
         if (patternKey == null) {
             return null;
         }
-        for (var holder : recipesOf(level, BotaniaReflection.petalType())) {
-            var recipe = holder;
-            var result = safeResult(recipe, level);
+        for (var recipe : recipes) {
+            ItemStack result;
+            try {
+                result = recipe.getResultItem(registries);
+            } catch (RuntimeException | LinkageError ignored) {
+                continue;
+            }
             if (result == null || result.isEmpty()) {
                 continue;
             }
@@ -240,7 +254,20 @@ public final class BotaniaRecipeLookup {
             if (!validatePatternOutputKey(pattern, result)) {
                 continue;
             }
-            return holder;
+            long amount = patternPrimaryOutputAmount(pattern);
+            int resultCount = result.getCount();
+            if (amount <= 0 || resultCount <= 0 || amount % resultCount != 0) {
+                continue;
+            }
+            long craftRatio = amount / resultCount;
+            if (craftRatio > Integer.MAX_VALUE
+                    || !PetalApothecaryAdapter.patternInputsCoverRecipe(pattern, recipe, craftRatio, budget)) {
+                if (budget.exhausted()) {
+                    return null;
+                }
+                continue;
+            }
+            return recipe;
         }
         return null;
     }
@@ -266,15 +293,41 @@ public final class BotaniaRecipeLookup {
         if (patternOutputs.length == 0) {
             return null;
         }
-        for (var holder : recipesOf(level, BotaniaReflection.runeType())) {
-            var recipe = holder;
+        for (var recipe : recipesOf(level, BotaniaReflection.runeType())) {
             var result = safeResult(recipe, level);
             if (result == null || result.isEmpty()) {
                 continue;
             }
             var catalysts = BotaniaReflection.recipeCatalysts(recipe);
             if (validatePatternRunicOutputs(pattern, result, catalysts)) {
-                return holder;
+                return recipe;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Mirrors the altar tile's own recipe resolution ({@code updateRecipe} /
+     * {@code onUsedByWand} fall back to
+     * {@code getRecipeFor(RUNE_TYPE, inventory, level)}): the first runic
+     * altar recipe whose {@code matches} accepts the live altar inventory.
+     *
+     * <p>This exists because Botania 1.20.x never assigns
+     * {@code RunicAltarBlockEntity#currentRecipe} &mdash; the field is only
+     * ever read (and reset to null after a craft), so a cached field read
+     * from our extract scan is always null. Calling
+     * {@code recipe.matches} directly through the vanilla {@link Recipe}
+     * interface is SRG-safe: the call site is reobfuscated at build time.
+     */
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public static Recipe<?> findRunicAltarMatch(ServerLevel level, Container inventory) {
+        for (var recipe : recipesOf(level, BotaniaReflection.runeType())) {
+            try {
+                if (((Recipe) recipe).matches(inventory, level)) {
+                    return recipe;
+                }
+            } catch (RuntimeException | LinkageError ignored) {
+                // Malformed third-party recipe; try the next one.
             }
         }
         return null;
@@ -373,8 +426,7 @@ public final class BotaniaRecipeLookup {
         if (patternKey == null) {
             return null;
         }
-        for (var holder : recipesOf(level, BotaniaReflection.terraPlateType())) {
-            var recipe = holder;
+        for (var recipe : recipesOf(level, BotaniaReflection.terraPlateType())) {
             var result = safeResult(recipe, level);
             if (result == null || result.isEmpty()) {
                 continue;
@@ -385,7 +437,7 @@ public final class BotaniaRecipeLookup {
             if (!validatePatternOutputKey(pattern, result)) {
                 continue;
             }
-            return holder;
+            return recipe;
         }
         return null;
     }
@@ -403,8 +455,7 @@ public final class BotaniaRecipeLookup {
         if (patternOutputs.length == 0) {
             return null;
         }
-        for (var holder : recipesOf(level, BotaniaReflection.elvenTradeType())) {
-            var recipe = holder;
+        for (var recipe : recipesOf(level, BotaniaReflection.elvenTradeType())) {
             var outputs = elvenTradeOutputs(recipe);
             if (outputs.isEmpty()) {
                 continue;
@@ -412,7 +463,7 @@ public final class BotaniaRecipeLookup {
             if (!validatePatternMultiOutput(pattern, outputs)) {
                 continue;
             }
-            return holder;
+            return recipe;
         }
         return null;
     }

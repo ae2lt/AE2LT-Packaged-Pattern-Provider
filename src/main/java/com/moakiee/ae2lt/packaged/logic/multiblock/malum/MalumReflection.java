@@ -7,12 +7,18 @@ import java.util.List;
 import java.util.Optional;
 
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Ingredient;
+import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.level.Level;
+
+import appeng.api.config.Actionable;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraftforge.items.IItemHandlerModifiable;
 
@@ -20,6 +26,7 @@ import com.moakiee.ae2lt.packaged.logic.multiblock.ReflectionSupport;
 
 final class MalumReflection {
 
+    private static final Logger LOG = LoggerFactory.getLogger("ae2ltpp/malum-reflection");
     private static final String[] ALTAR_CLASSES = {
             "com.sammy.malum.common.block.curiosities.sorcery.spirit_altar.SpiritAltarBlockEntity",
             "com.sammy.malum.common.block.curiosities.spirit_altar.SpiritAltarBlockEntity"
@@ -39,7 +46,8 @@ final class MalumReflection {
     private static final String FOCUSING_RECIPE_CLASS =
             "com.sammy.malum.common.recipe.SpiritFocusingRecipe";
     private static final String SPIRIT_INGREDIENT_CLASS =
-            "com.sammy.malum.core.systems.recipe.SpiritIngredient";
+            // 1.21 renamed this to SpiritIngredient; 1.20.1 ships SpiritWithCount.
+            "com.sammy.malum.core.systems.recipe.SpiritWithCount";
 
     private static volatile boolean lookupDone;
     private static volatile @Nullable Class<?> altarClass;
@@ -63,12 +71,16 @@ final class MalumReflection {
     private static volatile @Nullable Field infusionInputField;
     private static volatile @Nullable Field infusionSpiritsField;
     private static volatile @Nullable Field infusionExtrasField;
+    private static volatile @Nullable Field infusionOutputField;
+    private static volatile @Nullable Field infusionUseNbtFromInputField;
     private static volatile @Nullable Field focusingInputField;
     private static volatile @Nullable Field focusingSpiritsField;
     private static volatile @Nullable Field focusingOutputField;
 
     private static volatile @Nullable Method altarRecalculateMethod;
+    private static volatile @Nullable Method altarCraftingMethod;
     private static volatile @Nullable Method crucibleUpdateMethod;
+    private static volatile @Nullable Method crucibleCraftingMethod;
     private static volatile @Nullable Method capturePedestalsMethod;
     private static volatile @Nullable Method getSuppliedInventoryMethod;
     private static volatile @Nullable Method getAccessPointBlockPosMethod;
@@ -92,25 +104,78 @@ final class MalumReflection {
     }
 
     static boolean isAltarIdle(BlockEntity be) {
-        return isAltarInactive(be)
-                && fieldValue(altarRecipeField, be) == null;
+        ensureLookup();
+        if (altarRecipeField == null || !isAltarInactive(be)) {
+            return false;
+        }
+        return fieldIsNull(altarRecipeField, be);
     }
 
     static boolean isCrucibleIdle(BlockEntity be) {
-        return isCrucibleInactive(be)
-                && fieldValue(crucibleRecipeField, be) == null;
+        ensureLookup();
+        if (crucibleRecipeField == null
+                || crucibleProgressField == null
+                || !isSpiritCrucible(be)) {
+            return false;
+        }
+        var progress = fieldValue(crucibleProgressField, be);
+        if (!(progress instanceof Number number) || number.doubleValue() > 0) {
+            return false;
+        }
+        if (!optionalFalse(crucibleCraftingField, crucibleCraftingMethod, be)) {
+            return false;
+        }
+        return fieldIsNull(crucibleRecipeField, be);
     }
 
     static boolean isAltarInactive(BlockEntity be) {
-        return isSpiritAltar(be)
-                && !booleanField(altarCraftingField, be)
-                && numberField(altarProgressField, be) <= 0;
+        ensureLookup();
+        if (altarCraftingField == null
+                && altarCraftingMethod == null
+                || altarProgressField == null
+                || !isSpiritAltar(be)) {
+            return false;
+        }
+        var crafting = booleanState(altarCraftingField, altarCraftingMethod, be);
+        var progress = fieldValue(altarProgressField, be);
+        return crafting != null
+                && !crafting
+                && progress instanceof Number number
+                && number.doubleValue() <= 0;
     }
 
     static boolean isCrucibleInactive(BlockEntity be) {
-        return isSpiritCrucible(be)
-                && !booleanField(crucibleCraftingField, be)
-                && numberField(crucibleProgressField, be) <= 0;
+        ensureLookup();
+        if (crucibleProgressField == null || !isSpiritCrucible(be)) {
+            return false;
+        }
+        var progress = fieldValue(crucibleProgressField, be);
+        return progress instanceof Number number
+                && number.doubleValue() <= 0
+                && optionalFalse(crucibleCraftingField, crucibleCraftingMethod, be);
+    }
+
+    private static boolean optionalFalse(@Nullable Field field, @Nullable Method method, Object target) {
+        if (field == null && method == null) {
+            return true;
+        }
+        var value = booleanState(field, method, target);
+        return value != null && !value;
+    }
+
+    @Nullable
+    private static Boolean booleanState(@Nullable Field field, @Nullable Method method, Object target) {
+        var value = fieldValue(field, target);
+        if (value instanceof Boolean state) {
+            return state;
+        }
+        if (method != null) {
+            var result = ReflectionSupport.invoke(method, target);
+            if (result.isPresent() && result.get() instanceof Boolean state) {
+                return state;
+            }
+        }
+        return null;
     }
 
     @Nullable
@@ -138,11 +203,14 @@ final class MalumReflection {
         return itemHandler(crucibleSpiritInventoryField, be);
     }
 
-    static void recalculateAltar(ServerLevel level, BlockPos pos) {
+    static boolean recalculateAltar(ServerLevel level, BlockPos pos,
+                                    @Nullable ResourceLocation expectedRecipeId) {
         var be = level.getBlockEntity(pos);
         if (be == null || !isSpiritAltar(be) || altarRecalculateMethod == null) {
-            return;
+            return false;
         }
+        // Cache refresh is a mutation-adjacent operation: a throwing call leaves
+        // inventory state uncertain and must reach the dispatch boundary.
         refreshInventoryCaches(altarInventory(be));
         refreshInventoryCaches(altarSpiritInventory(be));
         refreshInventoryCaches(altarExtrasInventory(be));
@@ -150,97 +218,230 @@ final class MalumReflection {
             refreshInventoryCaches(pedestal.inventory());
         }
         try {
-            ReflectionSupport.invoke(altarRecalculateMethod, be);
-        } catch (RuntimeException | LinkageError ignored) {
+            LOG.debug("Spirit Altar recalculate before: dimension={} pos={} state={}",
+                    level.dimension().location(), pos, altarStateSummary(be, capturePedestals(level, pos)));
+        } catch (RuntimeException | LinkageError e) {
+            LOG.warn("Malum Spirit Altar state inspection failed before recalculate: dimension={} pos={} error={}",
+                    level.dimension().location(), pos, e.toString());
+            return false;
+        }
+        // Activation callers translate false to a commit failure or retry later.
+        try {
+            ReflectionSupport.invokeMutation(altarRecalculateMethod, be);
+        } catch (RuntimeException | LinkageError e) {
+            LOG.warn("Malum Spirit Altar recalculateRecipes invocation failed: dimension={} pos={} be={} error={}",
+                    level.dimension().location(), pos, be.getClass().getName(), e.toString());
+            throw e;
+        }
+        try {
+            var recipeId = altarRecipeId(be);
+            boolean activated = !isAltarIdle(be)
+                    && recipeId != null
+                    && (expectedRecipeId == null || expectedRecipeId.equals(recipeId));
+            LOG.debug("Spirit Altar recalculate after: dimension={} pos={} activated={} recipe={} expected={} state={}",
+                    level.dimension().location(), pos, activated, recipeId, expectedRecipeId,
+                    altarStateSummary(be, capturePedestals(level, pos)));
+            if (!activated) {
+                LOG.warn("Malum Spirit Altar recalculateRecipes did not establish expected recipe: dimension={} pos={} "
+                                + "expected={} actual={} be={} recipeField={} craftingField={} progressField={}",
+                        level.dimension().location(), pos, expectedRecipeId, recipeId, be.getClass().getName(),
+                        fieldName(altarRecipeField), fieldName(altarCraftingField), fieldName(altarProgressField));
+            }
+            return activated;
+        } catch (RuntimeException | LinkageError e) {
+            LOG.warn("Malum Spirit Altar state inspection failed after recalculate: dimension={} pos={} error={}",
+                    level.dimension().location(), pos, e.toString());
+            return false;
         }
     }
 
-    static void updateCrucibleRecipe(ServerLevel level, BlockPos pos) {
+    static boolean updateCrucibleRecipe(ServerLevel level, BlockPos pos,
+                                         @Nullable ResourceLocation expectedRecipeId) {
         var be = level.getBlockEntity(pos);
         if (be == null || !isSpiritCrucible(be) || crucibleUpdateMethod == null) {
-            return;
+            return false;
         }
         try {
-            ReflectionSupport.invoke(crucibleUpdateMethod, be);
-        } catch (RuntimeException | LinkageError ignored) {
+            LOG.debug("Spirit Crucible init before: dimension={} pos={} state={}",
+                    level.dimension().location(), pos, crucibleStateSummary(be));
+        } catch (RuntimeException | LinkageError e) {
+            LOG.warn("Malum Spirit Crucible state inspection failed before init: dimension={} pos={} error={}",
+                    level.dimension().location(), pos, e.toString());
+            return false;
         }
+        try {
+            ReflectionSupport.invokeMutation(crucibleUpdateMethod, be);
+        } catch (RuntimeException | LinkageError e) {
+            LOG.warn("Malum Spirit Crucible init invocation failed: dimension={} pos={} error={}",
+                    level.dimension().location(), pos, e.toString());
+            throw e;
+        }
+        try {
+            var recipeId = crucibleRecipeId(be);
+            boolean matches = recipeId != null
+                    && (expectedRecipeId == null || expectedRecipeId.equals(recipeId));
+            LOG.debug("Spirit Crucible init after: dimension={} pos={} recipe={} expected={} accepted={} state={}",
+                    level.dimension().location(), pos, recipeId, expectedRecipeId, matches,
+                    crucibleStateSummary(be));
+            if (!matches && expectedRecipeId != null) {
+                LOG.warn("Malum Spirit Crucible init did not establish expected recipe: dimension={} pos={} "
+                                + "expected={} actual={}",
+                        level.dimension().location(), pos, expectedRecipeId, recipeId);
+            }
+            return matches;
+        } catch (RuntimeException | LinkageError e) {
+            LOG.warn("Malum Spirit Crucible state inspection failed after init: dimension={} pos={} error={}",
+                    level.dimension().location(), pos, e.toString());
+            return false;
+        }
+    }
+
+    @Nullable
+    static ResourceLocation altarRecipeId(BlockEntity be) {
+        ensureLookup();
+        if (altarRecipeField == null || !isSpiritAltar(be)) {
+            return null;
+        }
+        return recipeId(fieldValue(altarRecipeField, be));
+    }
+
+    @Nullable
+    static ResourceLocation crucibleRecipeId(BlockEntity be) {
+        ensureLookup();
+        if (crucibleRecipeField == null || !isSpiritCrucible(be)) {
+            return null;
+        }
+        return recipeId(fieldValue(crucibleRecipeField, be));
+    }
+
+    @Nullable
+    static ResourceLocation recipeId(@Nullable Object recipe) {
+        return recipe instanceof Recipe<?> vanillaRecipe ? vanillaRecipe.getId() : null;
+    }
+
+    private static String crucibleStateSummary(BlockEntity be) {
+        return "catalyst=" + inventorySummary(crucibleInventory(be))
+                + ", spirits=" + inventorySummary(crucibleSpiritInventory(be))
+                + ", recipe=" + recipeId(fieldValue(crucibleRecipeField, be))
+                + ", crafting=" + booleanState(crucibleCraftingField, crucibleCraftingMethod, be)
+                + ", progress=" + fieldValue(crucibleProgressField, be);
+    }
+
+    private static String altarStateSummary(BlockEntity be, List<Pedestal> pedestals) {
+        var main = altarInventory(be);
+        var spirits = altarSpiritInventory(be);
+        var extras = altarExtrasInventory(be);
+        return "main=" + inventorySummary(main)
+                + ", spirits=" + inventorySummary(spirits)
+                + ", extras=" + inventorySummary(extras)
+                + ", pedestals=" + pedestals.stream()
+                .map(pedestal -> pedestal.pos() + ":" + inventorySummary(pedestal.inventory()))
+                .toList()
+                + ", recipe=" + recipeId(fieldValue(altarRecipeField, be))
+                + ", crafting=" + booleanState(altarCraftingField, altarCraftingMethod, be)
+                + ", progress=" + fieldValue(altarProgressField, be);
+    }
+
+    private static String inventorySummary(@Nullable IItemHandlerModifiable inventory) {
+        if (inventory == null) {
+            return "unresolved";
+        }
+        var values = new ArrayList<String>();
+        for (int i = 0; i < inventory.getSlots(); i++) {
+            var stack = inventory.getStackInSlot(i);
+            if (!stack.isEmpty()) {
+                values.add(i + "=" + stack.getItem() + "x" + stack.getCount());
+            }
+        }
+        return "slots=" + inventory.getSlots() + values;
     }
 
     static boolean insertItem(ServerLevel level, IItemHandlerModifiable inventory, int fallbackSlot, ItemStack stack) {
-        var insertMethod = ReflectionSupport.findMethodCached(inventory.getClass(), "insertItem", ServerLevel.class, ItemStack.class);
+        return insertItem(level, inventory, fallbackSlot, stack, Actionable.MODULATE);
+    }
+
+    /**
+     * Inserts into the exact slot used by the adapter. A simulated insertion is
+     * deliberately side-effect free; this matters for Lodestone's one-argument
+     * API, which performs a real insertion and returns the accepted stack.
+     */
+    static boolean insertItem(ServerLevel level, IItemHandlerModifiable inventory, int fallbackSlot,
+                              ItemStack stack, Actionable mode) {
+        if (slotInvalid(inventory, fallbackSlot) || stack.isEmpty()) {
+            return false;
+        }
+        if (!canPlaceInSlot(inventory, fallbackSlot, stack)) {
+            return false;
+        }
+        if (mode == Actionable.SIMULATE) {
+            return true;
+        }
+
+        // Recovery is keyed to fallbackSlot, so use a direct write whenever the
+        // target handler exposes a modifiable slot. This avoids generic APIs
+        // selecting another slot and avoids ambiguous return-value conventions.
+        if (placeItemInSlot(inventory, fallbackSlot, stack)) {
+            return true;
+        }
+
+        var insertMethod = ReflectionSupport.findMethodCached(
+                inventory.getClass(), "insertItem", ServerLevel.class, ItemStack.class);
         if (insertMethod.isPresent()) {
-            try {
-                var method = insertMethod.get();
-                var submitted = stack.copy();
-                var result = ReflectionSupport.invoke(method, inventory, level, submitted);
-                return result.isPresent()
-                        && insertionResultAccepted(result.get(), stack.getCount(), false, submitted);
-            } catch (RuntimeException | LinkageError ignored) {
-                return false;
-            }
+            var submitted = stack.copy();
+            var result = ReflectionSupport.invokeMutation(insertMethod.get(), inventory, level, submitted);
+            return result.isPresent()
+                    && insertionResultAccepted(result.get(), stack.getCount(), false, submitted);
         }
 
         insertMethod = ReflectionSupport.findMethodCached(inventory.getClass(), "insertItem", ItemStack.class);
         if (insertMethod.isPresent()) {
-            try {
-                var method = insertMethod.get();
-                var submitted = stack.copy();
-                var result = ReflectionSupport.invoke(method, inventory, submitted);
-                return result.isPresent()
-                        && insertionResultAccepted(result.get(), stack.getCount(), false, submitted);
-            } catch (RuntimeException | LinkageError ignored) {
-                return false;
-            }
+            var submitted = stack.copy();
+            var result = ReflectionSupport.invokeMutation(insertMethod.get(), inventory, submitted);
+            // Lodestone's one-argument method returns the accepted stack.
+            return result.isPresent()
+                    && insertionResultAccepted(result.get(), stack.getCount(), false, submitted);
         }
 
-        insertMethod = ReflectionSupport.findMethodCached(inventory.getClass(), "insertItem", ItemStack.class, boolean.class);
+        insertMethod = ReflectionSupport.findMethodCached(
+                inventory.getClass(), "insertItem", ItemStack.class, boolean.class);
         if (insertMethod.isPresent()) {
-            try {
-                var method = insertMethod.get();
-                var submitted = stack.copy();
-                var result = ReflectionSupport.invoke(method, inventory, submitted, false);
-                return result.isPresent()
-                        && insertionResultAccepted(result.get(), stack.getCount(), true, submitted);
-            } catch (RuntimeException | LinkageError ignored) {
-                return false;
-            }
+            var submitted = stack.copy();
+            var result = ReflectionSupport.invokeMutation(insertMethod.get(), inventory, submitted, false);
+            return result.isPresent()
+                    && insertionResultAccepted(result.get(), stack.getCount(), true, submitted);
         }
 
-        return placeItemInSlot(inventory, fallbackSlot, stack);
+        return false;
+    }
+
+    private static boolean canPlaceInSlot(IItemHandlerModifiable inventory, int slot, ItemStack stack) {
+        if (slotInvalid(inventory, slot)
+                || stack.getCount() > inventory.getSlotLimit(slot)
+                || !inventory.isItemValid(slot, stack)) {
+            return false;
+        }
+        var existing = inventory.getStackInSlot(slot);
+        return existing.isEmpty()
+                || ItemStack.isSameItemSameTags(existing, stack)
+                && (long) existing.getCount() + stack.getCount() <= inventory.getSlotLimit(slot);
     }
 
     static boolean placeItemInSlot(IItemHandlerModifiable inventory, int slot, ItemStack stack) {
         if (slotInvalid(inventory, slot) || stack.isEmpty()) {
             return false;
         }
-        try {
-            if (!inventory.isItemValid(slot, stack)) {
-                return false;
-            }
-            var existing = inventory.getStackInSlot(slot);
-            if (!existing.isEmpty()) {
-                if (!ItemStack.isSameItemSameTags(existing, stack)) {
-                    return false;
-                }
-                long mergedCount = (long) existing.getCount() + stack.getCount();
-                if (mergedCount > inventory.getSlotLimit(slot)) {
-                    return false;
-                }
-                var merged = existing.copy();
-                merged.grow(stack.getCount());
-                inventory.setStackInSlot(slot, merged);
-                refreshInventoryCaches(inventory);
-                return true;
-            }
-            if (stack.getCount() > inventory.getSlotLimit(slot)) {
-                return false;
-            }
-            inventory.setStackInSlot(slot, stack.copy());
-            refreshInventoryCaches(inventory);
-            return true;
-        } catch (RuntimeException | LinkageError ignored) {
+        if (!canPlaceInSlot(inventory, slot, stack)) {
             return false;
         }
+        var existing = inventory.getStackInSlot(slot);
+        var placed = existing.isEmpty() ? stack.copy() : existing.copy();
+        if (!existing.isEmpty()) {
+            placed.grow(stack.getCount());
+        }
+        // Once a setter is entered, even a throwing call may own the input.
+        inventory.setStackInSlot(slot, placed);
+        refreshInventoryCaches(inventory);
+        return true;
     }
 
     private static boolean slotInvalid(IItemHandlerModifiable inventory, int slot) {
@@ -261,17 +462,12 @@ final class MalumReflection {
         }
         if (result instanceof ItemStack stack) {
             if (resultIsRemainder) {
-                return stack.isEmpty();
+                return MalumInsertionSemantics.remainderResult(stack.isEmpty());
             }
-            return !stack.isEmpty() && stack.getCount() >= requestedCount;
+            return MalumInsertionSemantics.acceptedStackResult(
+                    stack.isEmpty(), stack.getCount(), requestedCount);
         }
-        if (submitted.isEmpty()) {
-            return true;
-        }
-        if (submitted.getCount() < requestedCount) {
-            return false;
-        }
-        return true;
+        return false;
     }
 
     private static long interactionAcceptedCount(Object result) {
@@ -308,12 +504,8 @@ final class MalumReflection {
             if (method.isEmpty()) {
                 continue;
             }
-            try {
-                var refresh = method.get();
-                ReflectionSupport.invoke(refresh, inventory);
-                return;
-            } catch (RuntimeException | LinkageError ignored) {
-            }
+            ReflectionSupport.invokeMutation(method.get(), inventory);
+            return;
         }
     }
 
@@ -387,8 +579,23 @@ final class MalumReflection {
             var value = infusionGetOutputMethod.invoke(recipe, level, input);
             return value instanceof ItemStack stack ? stack.copy() : null;
         } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+            // fall through to the output field (1.20.1 has no getOutput method)
+        }
+        var value = fieldValue(infusionOutputField, recipe);
+        if (!(value instanceof ItemStack stack)) {
             return null;
         }
+        var output = stack.copy();
+        if (infusionUseNbtFromInputField != null) {
+            var useInputNbt = fieldValue(infusionUseNbtFromInputField, recipe);
+            if (!(useInputNbt instanceof Boolean copyInputNbt)) {
+                return null;
+            }
+            if (copyInputNbt && input.hasTag()) {
+                output.setTag(input.getTag().copy());
+            }
+        }
+        return output;
     }
 
     @Nullable
@@ -469,6 +676,14 @@ final class MalumReflection {
         }
     }
 
+    private static boolean fieldIsNull(Field field, Object target) {
+        try {
+            return field.get(target) == null;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+            return false;
+        }
+    }
+
     /**
      * Reads an ingredient-with-count pair off a Malum recipe field.
      *
@@ -489,7 +704,9 @@ final class MalumReflection {
             return null;
         }
         var count = firstMemberOfType(value, Integer.class, "count", "getCount", "amount", "getAmount");
-        return new SizedIngredientView((Ingredient) ingredient, count instanceof Integer i ? i : 1);
+        return count instanceof Integer i && i > 0
+                ? new SizedIngredientView((Ingredient) ingredient, i)
+                : null;
     }
 
     @Nullable
@@ -572,14 +789,41 @@ final class MalumReflection {
             }
             try {
                 doLookup();
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+                LOG.info("Malum reflection ready: altar={} crucible={} accessPoint={} infusionRecipe={} focusingRecipe={} spiritIngredient={} "
+                                + "altarInventory={} altarSpiritInventory={} altarExtrasInventory={} altarRecipe={} altarCrafting={} altarProgress={} "
+                                + "crucibleInventory={} crucibleSpiritInventory={} crucibleRecipe={} crucibleCrafting={} crucibleProgress={} "
+                                + "altarRecalculate={} crucibleUpdate={} capturePedestals={} suppliedInventory={} accessPointPos={}",
+                        className(altarClass), className(crucibleClass), className(accessPointClass),
+                        className(infusionRecipeClass), className(focusingRecipeClass), className(spiritIngredientClass),
+                        fieldName(altarInventoryField), fieldName(altarSpiritInventoryField), fieldName(altarExtrasInventoryField),
+                        fieldName(altarRecipeField), fieldName(altarCraftingField), fieldName(altarProgressField),
+                        fieldName(crucibleInventoryField), fieldName(crucibleSpiritInventoryField), fieldName(crucibleRecipeField),
+                        fieldName(crucibleCraftingField), fieldName(crucibleProgressField), methodName(altarRecalculateMethod),
+                        methodName(crucibleUpdateMethod), methodName(capturePedestalsMethod), methodName(getSuppliedInventoryMethod),
+                        methodName(getAccessPointBlockPosMethod));
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+                LOG.warn("Malum reflection lookup failed: {}", e.toString());
             } finally {
                 lookupDone = true;
             }
         }
     }
 
+    private static String className(@Nullable Class<?> type) {
+        return type == null ? "unresolved" : type.getName();
+    }
+
+    private static String fieldName(@Nullable Field field) {
+        return field == null ? "unresolved" : field.getDeclaringClass().getName() + "#" + field.getName();
+    }
+
+    private static String methodName(@Nullable Method method) {
+        return method == null ? "unresolved" : method.getDeclaringClass().getName() + "#" + method.getName();
+    }
+
     private static void doLookup() throws ReflectiveOperationException {
+        // Critical class handles: without these the adapters cannot exist at
+        // all, so failures keep aborting the rest of the lookup.
         altarClass = requiredClass(ALTAR_CLASSES);
         crucibleClass = requiredClass(CRUCIBLE_CLASSES);
         accessPointClass = requiredClass(ACCESS_POINT_CLASS);
@@ -588,34 +832,87 @@ final class MalumReflection {
         spiritIngredientClass = requiredClass(SPIRIT_INGREDIENT_CLASS);
         var altarHelperClass = requiredClass(ALTAR_HELPER_CLASSES);
 
-        altarInventoryField = field(altarClass, "inventory");
-        altarSpiritInventoryField = field(altarClass, "spiritInventory");
-        altarExtrasInventoryField = field(altarClass, "extrasInventory");
-        altarRecipeField = field(altarClass, "recipe");
-        altarCraftingField = field(altarClass, "isCrafting");
-        altarProgressField = field(altarClass, "progress");
-        crucibleInventoryField = field(crucibleClass, "inventory");
-        crucibleSpiritInventoryField = field(crucibleClass, "spiritInventory");
-        crucibleRecipeField = field(crucibleClass, "recipe");
-        crucibleCraftingField = field(crucibleClass, "isCrafting");
-        crucibleProgressField = field(crucibleClass, "progress");
-        infusionInputField = field(infusionRecipeClass, "input");
-        infusionSpiritsField = field(infusionRecipeClass, "spirits");
-        infusionExtrasField = field(infusionRecipeClass, "extraInputs");
-        focusingInputField = field(focusingRecipeClass, "input");
-        focusingSpiritsField = field(focusingRecipeClass, "spirits");
-        focusingOutputField = field(focusingRecipeClass, "output");
+        // Everything below is optional per mod version (1.20.1 lacks several
+        // 1.21 members); each resolution must not be able to disable the rest.
+        altarInventoryField = fieldInHierarchy(altarClass, "inventory");
+        altarSpiritInventoryField = fieldInHierarchy(altarClass, "spiritInventory");
+        altarExtrasInventoryField = fieldInHierarchy(altarClass, "extrasInventory");
+        altarRecipeField = fieldInHierarchy(altarClass, "recipe");
+        altarCraftingField = fieldInHierarchy(altarClass, "isCrafting");
+        altarProgressField = fieldInHierarchy(altarClass, "progress");
+        crucibleInventoryField = fieldInHierarchy(crucibleClass, "inventory");
+        crucibleSpiritInventoryField = fieldInHierarchy(crucibleClass, "spiritInventory");
+        crucibleRecipeField = fieldInHierarchy(crucibleClass, "recipe");
+        crucibleCraftingField = fieldInHierarchy(crucibleClass, "isCrafting");
+        crucibleProgressField = fieldInHierarchy(crucibleClass, "progress");
+        infusionInputField = fieldQuietly(infusionRecipeClass, "input");
+        infusionSpiritsField = fieldInHierarchy(infusionRecipeClass, "spirits");
+        infusionExtrasField = fieldQuietly(infusionRecipeClass, "extraItems");
+        if (infusionExtrasField == null) {
+            infusionExtrasField = fieldInHierarchy(infusionRecipeClass, "extraInputs");
+        }
+        focusingInputField = fieldQuietly(focusingRecipeClass, "input");
+        focusingSpiritsField = fieldInHierarchy(focusingRecipeClass, "spirits");
+        focusingOutputField = fieldQuietly(focusingRecipeClass, "output");
+        infusionOutputField = fieldQuietly(infusionRecipeClass, "output");
+        infusionUseNbtFromInputField = fieldQuietly(infusionRecipeClass, "useNbtFromInput");
 
-        altarRecalculateMethod = method(altarClass, "recalculateRecipes");
-        crucibleUpdateMethod = method(crucibleClass, "updateRecipe");
-        capturePedestalsMethod = requiredMethod(altarHelperClass, "capturePedestals", Level.class, BlockPos.class);
-        getSuppliedInventoryMethod = requiredMethod(accessPointClass, "getSuppliedInventory");
-        getAccessPointBlockPosMethod = requiredMethod(accessPointClass, "getAccessPointBlockPos");
-        infusionGetOutputMethod = requiredMethod(infusionRecipeClass, "getOutput", ServerLevel.class, ItemStack.class);
-        spiritAsItemStackMethod = requiredMethod(spiritIngredientClass, "asItemStack");
+        altarRecalculateMethod = methodInHierarchy(altarClass, "recalculateRecipes").orElse(null);
+        altarCraftingMethod = methodInHierarchy(altarClass, "isCrafting").orElse(null);
+        crucibleUpdateMethod = methodInHierarchy(crucibleClass, "updateRecipe").orElse(null);
+        if (crucibleUpdateMethod == null) {
+            crucibleUpdateMethod = methodInHierarchy(crucibleClass, "init").orElse(null);
+        }
+        crucibleCraftingMethod = methodInHierarchy(crucibleClass, "isCrafting").orElse(null);
+        capturePedestalsMethod = methodInHierarchy(altarHelperClass, "capturePedestals",
+                Level.class, BlockPos.class).orElse(null);
+        getSuppliedInventoryMethod = methodInHierarchy(accessPointClass, "getSuppliedInventory").orElse(null);
+        getAccessPointBlockPosMethod = methodInHierarchy(accessPointClass, "getAccessPointBlockPos").orElse(null);
+        infusionGetOutputMethod = methodInHierarchy(infusionRecipeClass, "getOutput",
+                ServerLevel.class, ItemStack.class).orElse(null);
+        spiritAsItemStackMethod = methodQuietly(spiritIngredientClass, "getStack");
         focusingGetInputMethod = ReflectionSupport.findMethodCached(focusingRecipeClass, "getInput").orElse(null);
         focusingGetSpiritsMethod = ReflectionSupport.findMethodCached(focusingRecipeClass, "getSpirits").orElse(null);
         focusingCreateOutputMethod = ReflectionSupport.findMethodCached(focusingRecipeClass, "createOutput").orElse(null);
+    }
+
+    @Nullable
+    private static Field fieldQuietly(@Nullable Class<?> type, String name) {
+        if (type == null) {
+            return null;
+        }
+        try {
+            return field(type, name);
+        } catch (NoSuchFieldException | RuntimeException | LinkageError ignored) {
+            return null;
+        }
+    }
+
+    /** getDeclaredField fallback that walks superclasses (1.20.1 declares
+     *  {@code spirits} on the abstract base recipe). */
+    @Nullable
+    private static Field fieldInHierarchy(@Nullable Class<?> type, String name) {
+        var current = type;
+        while (current != null) {
+            var f = fieldQuietly(current, name);
+            if (f != null) {
+                return f;
+            }
+            current = current.getSuperclass();
+        }
+        return null;
+    }
+
+    @Nullable
+    private static Method methodQuietly(@Nullable Class<?> type, String name, Class<?>... parameterTypes) {
+        if (type == null) {
+            return null;
+        }
+        try {
+            return method(type, name, parameterTypes);
+        } catch (NoSuchMethodException | RuntimeException | LinkageError ignored) {
+            return null;
+        }
     }
 
     private static Field field(Class<?> type, String name) throws NoSuchFieldException {

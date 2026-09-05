@@ -120,30 +120,22 @@ public final class PetalApothecaryAdapter implements VirtualCraftingAdapter {
         if (holder == null) {
             return null;
         }
-        // Early sanity gate: every recipe ingredient (including the
-        // reagent) must be satisfiable by at least one declared pattern
-        // input. Wrong-machine patterns that happen to share an output
-        // id with a real apothecary recipe would otherwise bind and
-        // then hang the CPU on a plan that never succeeds. Water source
-        // inputs (bucket / fluid) live outside the recipe and are
-        // therefore not checked here.
-        if (!patternInputsCoverRecipe(pattern, holder)) {
-            return null;
-        }
         return new BindingResult(new PetalBindHandle(holder), BindingMode.VIRTUAL);
     }
 
     /**
-     * Lightweight, per-ingredient existence test: for each recipe
-     * ingredient (petals + reagent), there must be at least one pattern
-     * input whose item key passes {@code ingredient.test(key.toStack(1))}.
-     * Quantities are not yet enforced (that is plan-time work); this is
-     * only a "does the pattern look anything like a recipe of this
-     * machine" gate.
+     * Cover petals and reagent for the declared batch without reusing input
+     * quantities. Alternatives of one pattern input are choices, not additional
+     * inventory. Water and leftover validation remain plan-time checks.
      */
-    private static boolean patternInputsCoverRecipe(IPatternDetails pattern, Recipe<?> recipe) {
+    static boolean patternInputsCoverRecipe(IPatternDetails pattern, Recipe<?> recipe, long craftRatio,
+                                            SearchBudget budget) {
         var patternInputs = pattern.getInputs();
-        if (patternInputs == null || patternInputs.length == 0) {
+        if (patternInputs == null || patternInputs.length == 0 || craftRatio <= 0 || budget.exhausted()) {
+            return false;
+        }
+        if (patternInputs.length > 64) {
+            budget.exhausted = true;
             return false;
         }
         var allIngredients = new ArrayList<Ingredient>(recipe.getIngredients());
@@ -151,37 +143,73 @@ public final class PetalApothecaryAdapter implements VirtualCraftingAdapter {
         if (reagent != null && !reagent.isEmpty()) {
             allIngredients.add(reagent);
         }
-        for (var ing : allIngredients) {
-            if (ing.isEmpty()) {
-                continue;
-            }
-            boolean satisfied = false;
-            for (var patternInput : patternInputs) {
-                if (patternInput == null) {
-                    continue;
-                }
-                var possible = patternInput.getPossibleInputs();
-                if (possible == null) {
-                    continue;
-                }
-                for (var stack : possible) {
-                    if (!(stack.what() instanceof AEItemKey itemKey)) {
-                        continue;
-                    }
-                    if (ing.test(itemKey.toStack(1))) {
-                        satisfied = true;
-                        break;
-                    }
-                }
-                if (satisfied) {
-                    break;
-                }
-            }
-            if (!satisfied) {
+        return coverWithAlternatives(patternInputs, 0, allIngredients, craftRatio,
+                new LinkedHashMap<>(), new HashMap<>(), budget);
+    }
+
+    private static boolean coverWithAlternatives(IPatternDetails.IInput[] inputs, int index,
+                                                 List<Ingredient> ingredients, long craftRatio,
+                                                 LinkedHashMap<Item, Long> available,
+                                                 HashMap<Item, AEItemKey> keys, SearchBudget budget) {
+        if (budget.exhausted()) {
+            return false;
+        }
+        if (index == inputs.length) {
+            return consumeIngredientsStrict(ingredients, craftRatio, available, keys);
+        }
+        var input = inputs[index];
+        var possible = input == null ? null : input.getPossibleInputs();
+        if (possible == null || possible.length == 0) {
+            return coverWithAlternatives(inputs, index + 1, ingredients, craftRatio, available, keys, budget);
+        }
+        for (var stack : possible) {
+            // Charge every attempted alternative before allocating, including invalid ones.
+            if (!budget.tryBranch()) {
                 return false;
             }
+            var nextAvailable = new LinkedHashMap<>(available);
+            var nextKeys = new HashMap<>(keys);
+            if (stack != null && stack.what() instanceof AEItemKey key) {
+                long multiplier = input.getMultiplier();
+                if (stack.amount() <= 0 || multiplier <= 0) {
+                    continue;
+                }
+                var previousKey = nextKeys.putIfAbsent(key.getItem(), key);
+                if (previousKey != null && !previousKey.equals(key)) {
+                    continue;
+                }
+                try {
+                    long amount = Math.multiplyExact(stack.amount(), multiplier);
+                    nextAvailable.put(key.getItem(), Math.addExact(
+                            nextAvailable.getOrDefault(key.getItem(), 0L), amount));
+                } catch (ArithmeticException overflow) {
+                    continue;
+                }
+            }
+            if (coverWithAlternatives(inputs, index + 1, ingredients, craftRatio, nextAvailable, nextKeys, budget)) {
+                return true;
+            }
         }
-        return true;
+        return false;
+    }
+
+    /** One budget per lookup, shared by all output-compatible candidates. */
+    static final class SearchBudget {
+        private int remaining = 4096;
+        private boolean exhausted;
+
+        boolean exhausted() {
+            return exhausted;
+        }
+
+        private boolean tryBranch() {
+            if (exhausted || remaining == 0) {
+                exhausted = true;
+                return false;
+            }
+            remaining--;
+            return true;
+        }
     }
 
     @Override
@@ -245,11 +273,26 @@ public final class PetalApothecaryAdapter implements VirtualCraftingAdapter {
                 }
                 if (entry.getKey() instanceof AEItemKey itemKey) {
                     var item = itemKey.getItem();
-                    itemAvailable.merge(item, amt, Long::sum);
-                    itemKeys.putIfAbsent(item, itemKey);
+                    var previousKey = itemKeys.putIfAbsent(item, itemKey);
+                    if (previousKey != null && !previousKey.equals(itemKey)) {
+                        // The recipe matcher is NBT-sensitive; merging distinct AE
+                        // keys by raw Item would consume or return the wrong variant.
+                        return null;
+                    }
+                    long previousItemAmount = itemAvailable.getOrDefault(item, 0L);
+                    try {
+                        itemAvailable.put(item, Math.addExact(previousItemAmount, amt));
+                    } catch (ArithmeticException overflow) {
+                        return null;
+                    }
                 } else if (entry.getKey() instanceof AEFluidKey fluidKey) {
                     var fluid = fluidKey.getFluid();
-                    fluidAvailable.merge(fluid, amt, Long::sum);
+                    long previousFluidAmount = fluidAvailable.getOrDefault(fluid, 0L);
+                    try {
+                        fluidAvailable.put(fluid, Math.addExact(previousFluidAmount, amt));
+                    } catch (ArithmeticException overflow) {
+                        return null;
+                    }
                     fluidKeys.putIfAbsent(fluid, fluidKey);
                 } else {
                     // Unknown key kind: refuse rather than mistakenly

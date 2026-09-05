@@ -102,7 +102,7 @@ final class PackagedProviderTextureButton extends Button implements ITooltip {
     }
 
     private static ResourceLocation texture(String name) {
-        return new ResourceLocation(
+        return ResourceLocation.fromNamespaceAndPath(
                 "ae2lt", "textures/gui/buttons/" + name + ".png");
     }
 }

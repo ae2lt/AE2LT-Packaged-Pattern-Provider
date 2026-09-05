@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -20,6 +21,17 @@ class AE2LTDependencyBoundaryTest {
     private static final String WIRELESS_SUPPORT_CONTRACT =
             "com.moakiee.ae2lt.logic.wireless.support.";
 
+    // Connector guards have no public extension point. Keep their exceptions local to the mixins.
+    private static final Map<String, Set<String>> CONNECTOR_MIXIN_CONTRACTS = Map.of(
+            "com/moakiee/ae2lt/packaged/mixin/WirelessConnectorItemMixin.java", Set.of(
+                    "com.moakiee.ae2lt.item.OverloadedWirelessConnectorItem",
+                    "com.moakiee.ae2lt.network.NetworkInit",
+                    "com.moakiee.ae2lt.network.WirelessConnectorUsePacket"),
+            "com/moakiee/ae2lt/packaged/mixin/WirelessConnectorPacketMixin.java", Set.of(
+                    "com.moakiee.ae2lt.item.OverloadedWirelessConnectorItem",
+                    "com.moakiee.ae2lt.logic.WirelessConnectorTargetHelper",
+                    "com.moakiee.ae2lt.network.WirelessConnectorUsePacket"));
+
     @Test
     void mainSourcesOnlyUseAE2LTPublicApi() throws IOException {
         var violations = new ArrayList<String>();
@@ -31,7 +43,10 @@ class AE2LTDependencyBoundaryTest {
                     var matcher = AE2LT_REFERENCE.matcher(lines.get(lineIndex));
                     while (matcher.find()) {
                         if (!ALLOWED_ROOT_PACKAGES.contains(matcher.group(1))
-                                && !matcher.group().startsWith(WIRELESS_SUPPORT_CONTRACT)) {
+                                && !matcher.group().startsWith(WIRELESS_SUPPORT_CONTRACT)
+                                && !CONNECTOR_MIXIN_CONTRACTS.getOrDefault(
+                                        MAIN_SOURCES.relativize(source).toString().replace('\\', '/'), Set.of())
+                                        .contains(matcher.group())) {
                             violations.add(source + ":" + (lineIndex + 1) + " -> " + matcher.group());
                         }
                     }

@@ -17,6 +17,14 @@ class PackagedProviderPersistenceContractTest {
 
         assertTrue(source.contains("\"ae2ltpp_adapter_inv\""));
         assertTrue(source.contains("\"ae2ltpp_adapter_flags\""));
+        assertTrue(source.contains("\"ae2ltpp_adapter_states\""));
+        assertTrue(source.contains("data.contains(TAG_ADAPTER_FLAGS, Tag.TAG_COMPOUND)"));
+        assertTrue(source.contains("data.contains(TAG_ADAPTER_STATES, Tag.TAG_COMPOUND)"));
+        assertTrue(source.contains("valuesTag.putString(Long.toString(value.getKey()), value.getValue())"));
+        assertTrue(source.contains("public void setState(BlockPos targetPos, String key, String value)"));
+        assertTrue(source.contains("public String getState(BlockPos targetPos, String key)"));
+        assertTrue(source.contains("public void clearState(BlockPos targetPos, String key)"));
+        assertTrue(source.contains("adapterStates.clear()"));
         assertTrue(source.contains("frequencyBinding.load(data)"));
         assertTrue(source.contains("frequencyBinding.save(data)"));
     }

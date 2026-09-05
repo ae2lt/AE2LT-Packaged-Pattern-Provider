@@ -111,6 +111,6 @@ public record PackagedCoreDefinition(
         return new PackagedCoreDefinition(
                 itemId,
                 targetModId,
-                new ResourceLocation(targetModId, targetItemPath));
+                ResourceLocation.fromNamespaceAndPath(targetModId, targetItemPath));
     }
 }

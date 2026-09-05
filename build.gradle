@@ -199,13 +199,15 @@ dependencies {
     // ============================================================
     if ((findProperty('enable_integration_runtime') ?: 'false').toBoolean()) {
         // Library dependencies shared by multiple target mods
-        runtimeOnly fg.deobf("maven.modrinth:cucumber:5.1.6")                   // MA + EC
+        runtimeOnly fg.deobf("maven.modrinth:cucumber:7.0.5")                   // MA + EC
         runtimeOnly fg.deobf("maven.modrinth:patchouli:1.20.1-84-FORGE")        // AA
         runtimeOnly fg.deobf("maven.modrinth:geckolib:4.4.9")                   // Occultism + Ars
         runtimeOnly fg.deobf("maven.modrinth:smartbrainlib:1.13")               // Occultism
         runtimeOnly fg.deobf("maven.modrinth:modonomicon:1.20.1-1.60.4")        // Occultism
         runtimeOnly fg.deobf("maven.modrinth:codechicken-lib:4.3.1.480")        // DE
         runtimeOnly fg.deobf("maven.modrinth:brandons-core:3.1.1.171")          // DE
+        runtimeOnly fg.deobf("maven.modrinth:lodestonelib:1.20.1-1.6.4.1")       // Malum
+        runtimeOnly fg.deobf("maven.modrinth:curios:5.14.1+1.20.1")              // Malum
 
         // Target mods (one adapter package per mod)
         runtimeOnly fg.deobf("maven.modrinth:actually-additions:1.20.1-1.3.5")  // aa/
@@ -214,6 +216,7 @@ dependencies {
         runtimeOnly fg.deobf("maven.modrinth:extended-crafting:6.0.5")          // ec/
         runtimeOnly fg.deobf("maven.modrinth:occultism:1.100.2")                // occultism/
         runtimeOnly fg.deobf("maven.modrinth:draconic-evolution:3.1.0.579")     // de/
+        runtimeOnly fg.deobf("maven.modrinth:malum:1.20.1-1.6.7")               // malum/
     }
 }
 
@@ -221,9 +224,20 @@ dependencies {
 // so reuse the Minecraft/Forge classpath already available to main.
 sourceSets.test.compileClasspath += sourceSets.main.compileClasspath
 sourceSets.test.runtimeClasspath += sourceSets.main.runtimeClasspath
+// Standalone-test stubs must not shadow the real AE2 API in the Gradle suite.
+sourceSets.test.java.exclude(
+        'appeng/api/crafting/IPatternDetails.java',
+        'appeng/api/networking/security/IActionSource.java',
+        'appeng/api/stacks/GenericStack.java',
+        'appeng/api/stacks/KeyCounter.java')
 
 test {
     useJUnitPlatform()
+    // This migration test requires a deobfuscated AE2LT development jar;
+    // the production jar available to this branch is post-reobf.
+    filter {
+        excludeTestsMatching 'StablePatternProviderNbtMigrationTest'
+    }
 }
 
 // Expand the declared replace properties in the mod metadata resources.

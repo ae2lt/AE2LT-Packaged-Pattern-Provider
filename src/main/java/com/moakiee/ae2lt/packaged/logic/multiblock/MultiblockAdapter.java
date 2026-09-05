@@ -66,6 +66,21 @@ public interface MultiblockAdapter {
      */
     boolean canDispatch(ServerLevel level, BlockPos mainPos, Object handle);
 
+    /** Allows adapters with provider-owned state to clear stale dispatch markers. */
+    default boolean canDispatch(ServerLevel level, BlockPos mainPos, Object handle,
+                                AdapterPersistentScope scope) {
+        return canDispatch(level, mainPos, handle);
+    }
+
+    /**
+     * Advances adapter-owned pending work that must not depend on a fresh pattern
+     * push or automatic output extraction. Implementations must remain fail-closed
+     * and must not dispatch new inputs from this hook.
+     */
+    default void tickPending(ServerLevel level, BlockPos mainPos,
+                             AdapterPersistentScope scope) {
+    }
+
     /**
      * Build a dispatch plan using the previously computed {@code handle}.
      * Implementations may still revalidate the recipe match against the live
@@ -118,6 +133,14 @@ public interface MultiblockAdapter {
                                                IActionSource source,
                                                AdapterPersistentScope scope) {
         return extractOutputs(level, mainPos, filter, source);
+    }
+
+    /**
+     * Whether extraction uses persisted dispatch ownership independently of the
+     * installed patterns. The default preserves the empty-pattern extraction gate.
+     */
+    default boolean supportsPatternIndependentHarvest() {
+        return false;
     }
 
     /**

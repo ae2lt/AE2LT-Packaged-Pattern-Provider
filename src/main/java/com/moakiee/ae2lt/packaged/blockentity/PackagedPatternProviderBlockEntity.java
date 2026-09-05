@@ -3,6 +3,8 @@ package com.moakiee.ae2lt.packaged.blockentity;
 import java.util.EnumSet;
 
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -42,8 +44,10 @@ import com.moakiee.ae2lt.packaged.patternprovider.StablePatternProviderBlockEnti
 public class PackagedPatternProviderBlockEntity extends StablePatternProviderBlockEntity
         implements FrequencyBindingHost, PatternProviderUiProfile, AdapterPersistentScope {
 
+    private static final Logger LOG = LoggerFactory.getLogger(PackagedPatternProviderBlockEntity.class);
     private static final String TAG_ADAPTER_INV = "ae2ltpp_adapter_inv";
     private static final String TAG_ADAPTER_FLAGS = "ae2ltpp_adapter_flags";
+    private static final String TAG_ADAPTER_STATES = "ae2ltpp_adapter_states";
 
     /**
      * Per-(key, target-position) boolean flag store backing
@@ -54,7 +58,18 @@ public class PackagedPatternProviderBlockEntity extends StablePatternProviderBlo
      * clashing &mdash; namespacing is the adapter's responsibility, which is
      * spelled out in {@link AdapterPersistentScope}.
      */
+    /**
+     * Per-adapter persistent flags, keyed by adapter-namespaced String.
+     *
+     * <p><b>Namespacing contract:</b> the key string MUST be prefixed with the
+     * calling adapter's mod id (e.g. {@code "mysticalagriculture:altar_used"}).
+     * A bare key like {@code "altar"} will collide across adapters and the
+     * {@code adapterFlags} map will grow without bound as different adapters
+     * pick their own keys. See {@link AdapterPersistentScope} for the public API.
+     */
     private final java.util.HashMap<String, java.util.HashSet<Long>> adapterFlags = new java.util.HashMap<>();
+    private final java.util.HashMap<String, java.util.HashMap<Long, String>> adapterStates =
+            new java.util.HashMap<>();
 
     private final ProviderMode fixedProviderMode;
     private final FrequencyBindingAccess frequencyBinding = FrequencyApi.createBinding(this);
@@ -137,6 +152,10 @@ public class PackagedPatternProviderBlockEntity extends StablePatternProviderBlo
     @Override
     protected void serverTickAdditional(ServerLevel level) {
         frequencyBinding.serverTick();
+        var logic = getLogic();
+        if (logic instanceof PackagedPatternProviderLogic packaged) {
+            packaged.tickPendingAdapters(level);
+        }
     }
 
     @Override
@@ -273,6 +292,29 @@ public class PackagedPatternProviderBlockEntity extends StablePatternProviderBlo
                 adapterFlags.put(key, set);
             }
         }
+        adapterStates.clear();
+        if (data.contains(TAG_ADAPTER_STATES, Tag.TAG_COMPOUND)) {
+            var statesTag = data.getCompound(TAG_ADAPTER_STATES);
+            for (var key : statesTag.getAllKeys()) {
+                if (!statesTag.contains(key, Tag.TAG_COMPOUND)) {
+                    continue;
+                }
+                var valuesTag = statesTag.getCompound(key);
+                var values = new java.util.HashMap<Long, String>();
+                for (var packedText : valuesTag.getAllKeys()) {
+                    if (!valuesTag.contains(packedText, Tag.TAG_STRING)) {
+                        continue;
+                    }
+                    try {
+                        values.put(Long.parseLong(packedText), valuesTag.getString(packedText));
+                    } catch (NumberFormatException ignored) {
+                    }
+                }
+                if (!values.isEmpty()) {
+                    adapterStates.put(key, values);
+                }
+            }
+        }
     }
 
     @Override
@@ -298,6 +340,24 @@ public class PackagedPatternProviderBlockEntity extends StablePatternProviderBlo
                 data.put(TAG_ADAPTER_FLAGS, flagsTag);
             }
         }
+        if (!adapterStates.isEmpty()) {
+            var statesTag = new CompoundTag();
+            for (var entry : adapterStates.entrySet()) {
+                if (entry.getValue().isEmpty()) {
+                    continue;
+                }
+                var valuesTag = new CompoundTag();
+                for (var value : entry.getValue().entrySet()) {
+                    valuesTag.putString(Long.toString(value.getKey()), value.getValue());
+                }
+                if (!valuesTag.isEmpty()) {
+                    statesTag.put(entry.getKey(), valuesTag);
+                }
+            }
+            if (!statesTag.isEmpty()) {
+                data.put(TAG_ADAPTER_STATES, statesTag);
+            }
+        }
     }
 
     @Override
@@ -315,6 +375,23 @@ public class PackagedPatternProviderBlockEntity extends StablePatternProviderBlo
     }
 
     @Override
+    public void clearFlagsForTarget(BlockPos targetPos) {
+        long packed = targetPos.asLong();
+        boolean changed = false;
+        for (var set : adapterFlags.values()) {
+            changed |= set.remove(packed);
+        }
+        changed |= adapterFlags.entrySet().removeIf(entry -> entry.getValue().isEmpty());
+        for (var values : adapterStates.values()) {
+            changed |= values.remove(packed) != null;
+        }
+        changed |= adapterStates.entrySet().removeIf(entry -> entry.getValue().isEmpty());
+        if (changed) {
+            saveChanges();
+        }
+    }
+
+    @Override
     public void clearFlag(BlockPos targetPos, String key) {
         var set = adapterFlags.get(key);
         if (set == null) {
@@ -329,15 +406,66 @@ public class PackagedPatternProviderBlockEntity extends StablePatternProviderBlo
     }
 
     @Override
+    public void setState(BlockPos targetPos, String key, String value) {
+        java.util.Objects.requireNonNull(value, "value");
+        var values = adapterStates.computeIfAbsent(key, k -> new java.util.HashMap<>());
+        var previous = values.put(targetPos.asLong(), value);
+        if (!value.equals(previous)) {
+            saveChanges();
+        }
+    }
+
+    @Override
+    @Nullable
+    public String getState(BlockPos targetPos, String key) {
+        var values = adapterStates.get(key);
+        return values == null ? null : values.get(targetPos.asLong());
+    }
+
+    @Override
+    public void clearState(BlockPos targetPos, String key) {
+        var values = adapterStates.get(key);
+        if (values == null) {
+            return;
+        }
+        if (values.remove(targetPos.asLong()) != null) {
+            if (values.isEmpty()) {
+                adapterStates.remove(key);
+            }
+            saveChanges();
+        }
+    }
+
+    @Override
     public void addAdditionalDrops(net.minecraft.world.level.Level level,
                                     BlockPos pos,
                                     java.util.List<ItemStack> drops) {
         super.addAdditionalDrops(level, pos, drops);
+        var logic = getLogic();
+        if (logic instanceof PackagedPatternProviderLogic packaged) {
+            for (var stack : packaged.drainVirtualBatch()) {
+                if (stack.what() instanceof appeng.api.stacks.AEItemKey itemKey) {
+                    itemKey.addDrops(stack.amount(), drops, level, pos);
+                } else {
+                    LOG.warn("Dropping packaged provider at {} discarded non-item virtual output {} x{}",
+                            pos, stack.what(), stack.amount());
+                }
+            }
+        }
         var card = adapterInv.getStackInSlot(0);
         if (!card.isEmpty()) {
             drops.add(card.copy());
             adapterInv.setItemDirect(0, ItemStack.EMPTY);
         }
+    }
+
+    @Override
+    public void clearContent() {
+        // clearContent is also used for inventory resets and chunk lifecycle
+        // transitions. Do not drain the virtual output buffer here: destruction
+        // routes pending outputs through addAdditionalDrops(), while a reset or
+        // unload must keep them persisted for the next flush.
+        super.clearContent();
     }
 
     @Override
@@ -360,6 +488,9 @@ public class PackagedPatternProviderBlockEntity extends StablePatternProviderBlo
 
     @Override
     public void setRemoved() {
+        // setRemoved is also invoked when a chunk unloads. Keep provider-owned
+        // adapter state intact so pending crafts survive unload/reload; explicit
+        // connection removal and confirmed target replacement clear it instead.
         frequencyBinding.setRemoved();
         super.setRemoved();
     }

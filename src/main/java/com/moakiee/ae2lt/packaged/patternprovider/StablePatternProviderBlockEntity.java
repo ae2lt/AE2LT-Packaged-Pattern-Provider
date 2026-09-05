@@ -12,6 +12,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
@@ -29,6 +30,8 @@ import com.moakiee.ae2lt.api.patternprovider.WirelessPatternProviderHost;
 import com.moakiee.ae2lt.api.patternprovider.WirelessPatternProviderPolicy;
 import com.moakiee.ae2lt.logic.wireless.support.WirelessConnectionLists;
 import com.moakiee.ae2lt.logic.wireless.support.WirelessConnectionRef;
+import com.moakiee.ae2lt.logic.wireless.support.WirelessConnectionRange;
+import com.moakiee.ae2lt.packaged.logic.multiblock.MultiblockAdapterRegistry;
 import com.moakiee.ae2lt.logic.wireless.support.WirelessConnectionValidator;
 
 /**
@@ -99,13 +102,22 @@ public abstract class StablePatternProviderBlockEntity
         }
 
         public static WirelessConnection fromTag(CompoundTag tag) {
-            var dimension = ResourceKey.create(
-                    Registries.DIMENSION,
-                    new ResourceLocation(tag.getString(TAG_DIMENSION)));
-            return new WirelessConnection(
-                    dimension,
-                    BlockPos.of(tag.getLong(TAG_POSITION)),
-                    Direction.from3DDataValue(tag.getInt(TAG_FACE)));
+            if (!tag.contains(TAG_DIMENSION, Tag.TAG_STRING)
+                    || !tag.contains(TAG_POSITION, Tag.TAG_LONG)
+                    || !tag.contains(TAG_FACE, Tag.TAG_INT)) {
+                return null;
+            }
+            try {
+                var dimension = ResourceKey.create(
+                        Registries.DIMENSION,
+                        ResourceLocation.parse(tag.getString(TAG_DIMENSION)));
+                return new WirelessConnection(
+                        dimension,
+                        BlockPos.of(tag.getLong(TAG_POSITION)),
+                        Direction.from3DDataValue(tag.getInt(TAG_FACE)));
+            } catch (RuntimeException ignored) {
+                return null;
+            }
         }
     }
 
@@ -143,6 +155,12 @@ public abstract class StablePatternProviderBlockEntity
             BlockPos pos,
             BlockState state,
             StablePatternProviderBlockEntity blockEntity) {
+        // Skip work after setRemoved: the AE2 block-entity ticker can keep invoking
+        // us for one extra tick after removal, and any reference to the (now-detached)
+        // grid node / adapter state can throw or recurse.
+        if (blockEntity.isRemoved()) {
+            return;
+        }
         if (level instanceof ServerLevel serverLevel) {
             blockEntity.tickWirelessConnectionCleanup(serverLevel);
             blockEntity.serverTickAdditional(serverLevel);
@@ -161,6 +179,8 @@ public abstract class StablePatternProviderBlockEntity
     @Override
     public void onReady() {
         super.onReady();
+        // NBT restoration happens before world access is safe; validate it now.
+        clearInvalidConnections();
         recomputeIdlePower();
     }
 
@@ -287,16 +307,28 @@ public abstract class StablePatternProviderBlockEntity
     @Override
     public boolean addOrUpdateConnection(
             ResourceKey<Level> dimension, BlockPos pos, Direction boundFace) {
-        if (level != null && !level.dimension().equals(dimension)) {
+        if (!(level instanceof ServerLevel serverLevel)
+                || dimension == null || pos == null || boundFace == null) {
+            return false;
+        }
+        var updated = new WirelessConnection(dimension, pos.immutable(), boundFace);
+        if (validateConnection(serverLevel, worldPosition, updated,
+                WirelessPatternProviderPolicy.maxDistance()) != WirelessConnectionValidator.Status.VALID) {
             return false;
         }
         int index = WirelessConnectionLists.indexOf(connections, dimension, pos);
-        var updated = new WirelessConnection(dimension, pos.immutable(), boundFace);
         if (index >= 0) {
             if (connections.get(index).equals(updated)) {
                 return true;
             }
-            connections.set(index, updated);
+            var previous = connections.set(index, updated);
+            // A face change only changes the insertion direction. The target
+            // machine and its provider-owned pending state are unchanged.
+            if ((!previous.dimension().equals(updated.dimension())
+                    || !previous.pos().equals(updated.pos()))
+                    && this instanceof com.moakiee.ae2lt.packaged.blockentity.PackagedPatternProviderBlockEntity packaged) {
+                packaged.clearFlagsForTarget(previous.pos());
+            }
             onConnectionsChanged(false);
             return true;
         }
@@ -314,7 +346,10 @@ public abstract class StablePatternProviderBlockEntity
         if (index < 0) {
             return false;
         }
-        connections.remove(index);
+        var removed = connections.remove(index);
+        if (this instanceof com.moakiee.ae2lt.packaged.blockentity.PackagedPatternProviderBlockEntity packaged) {
+            packaged.clearFlagsForTarget(removed.pos());
+        }
         onConnectionsChanged(true);
         return true;
     }
@@ -334,6 +369,31 @@ public abstract class StablePatternProviderBlockEntity
         markForUpdate();
     }
 
+    /** PP permits block-only adapters without weakening AE2LT's global validator. */
+    static WirelessConnectionValidator.Status validateConnection(
+            ServerLevel hostLevel, BlockPos hostPos, WirelessConnectionRef target, int maxDistance) {
+        if (!WirelessConnectionRange.isInRange(
+                hostLevel.dimension(), hostPos, target.dimension(), target.pos(), maxDistance)) {
+            return WirelessConnectionValidator.Status.REMOVE;
+        }
+        var targetLevel = hostLevel.getServer().getLevel(target.dimension());
+        if (targetLevel == null) {
+            return WirelessConnectionValidator.Status.REMOVE;
+        }
+        if (!targetLevel.isLoaded(target.pos())) {
+            // Retain existing connections while unloaded, but do not add new ones.
+            return WirelessConnectionValidator.Status.UNLOADED;
+        }
+        var state = targetLevel.getBlockState(target.pos());
+        var be = targetLevel.getBlockEntity(target.pos());
+        if (!state.isAir() && be != null) {
+            return WirelessConnectionValidator.Status.VALID;
+        }
+        return MultiblockAdapterRegistry.find(targetLevel, target.pos(), be) != null
+                ? WirelessConnectionValidator.Status.VALID
+                : WirelessConnectionValidator.Status.REMOVE;
+    }
+
     public int clearInvalidConnections() {
         return pruneInvalidConnections(Integer.MAX_VALUE);
     }
@@ -345,17 +405,26 @@ public abstract class StablePatternProviderBlockEntity
             return 0;
         }
         int maxDistance = WirelessPatternProviderPolicy.maxDistance();
+        var before = List.copyOf(connections);
         var result = WirelessConnectionLists.prune(
                 connections,
                 invalidConnectionScanCursor,
                 maxChecks,
-                connection -> WirelessConnectionValidator.validate(
+                connection -> validateConnection(
                         serverLevel,
                         worldPosition,
                         connection,
                         maxDistance) == WirelessConnectionValidator.Status.REMOVE);
         invalidConnectionScanCursor = result.nextCursor();
         if (result.removed() > 0) {
+            if (this instanceof com.moakiee.ae2lt.packaged.blockentity.PackagedPatternProviderBlockEntity packaged) {
+                for (var previous : before) {
+                    if (WirelessConnectionLists.indexOf(
+                            connections, previous.dimension(), previous.pos()) < 0) {
+                        packaged.clearFlagsForTarget(previous.pos());
+                    }
+                }
+            }
             recomputeIdlePower();
             notifyLogicStateChanged();
             saveChanges();
@@ -605,7 +674,7 @@ public abstract class StablePatternProviderBlockEntity
         var counts = new LinkedHashMap<PatternContainerGroup, Integer>();
         int maxDistance = WirelessPatternProviderPolicy.maxDistance();
         for (var connection : connections) {
-            if (WirelessConnectionValidator.validate(
+            if (validateConnection(
                     hostLevel,
                     worldPosition,
                     connection,

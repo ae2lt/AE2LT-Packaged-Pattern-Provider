@@ -21,13 +21,17 @@ import com.moakiee.ae2lt.packaged.AE2LTPackagedProvider;
 
 public final class MultiblockAdapterRegistry {
 
+    // Volatile reads of `activeAdapters` are safe because we always publish an
+    // immutable List.of/Collections.unmodifiableList. Writes are guarded by the
+    // monitor on MultiblockAdapterRegistry.class so that the pair
+    // (activeAdapters, activeEnabledStates) is updated atomically.
     private static final Map<ResourceLocation, AdapterRegistration> REGISTRATIONS = new LinkedHashMap<>();
     private static final BooleanSupplier ALWAYS_ENABLED = () -> true;
-    private static List<AdapterRegistration> sortedRegistrations = List.of();
-    private static List<MultiblockAdapter> activeAdapters = List.of();
-    private static boolean[] activeEnabledStates = new boolean[0];
-    private static boolean hasDynamicEnabledSupplier;
-    private static boolean cacheDirty = true;
+    private static volatile List<AdapterRegistration> sortedRegistrations = List.of();
+    private static volatile List<MultiblockAdapter> activeAdapters = List.of();
+    private static volatile boolean[] activeEnabledStates = new boolean[0];
+    private static volatile boolean hasDynamicEnabledSupplier;
+    private static volatile boolean cacheDirty = true;
 
     private MultiblockAdapterRegistry() {
     }
@@ -38,7 +42,7 @@ public final class MultiblockAdapterRegistry {
     }
 
     /** Register during mod setup. Not thread-safe with concurrent lookup. */
-    public static void register(AdapterRegistration registration) {
+    public static synchronized void register(AdapterRegistration registration) {
         var existing = REGISTRATIONS.putIfAbsent(registration.id(), registration);
         if (existing != null) {
             throw new IllegalStateException("Duplicate multiblock adapter: " + registration.id());
@@ -87,8 +91,10 @@ public final class MultiblockAdapterRegistry {
                 adapters.add(sortedRegistrations.get(i).adapter());
             }
         }
-        activeEnabledStates = Arrays.copyOf(enabledStates, enabledStates.length);
-        activeAdapters = Collections.unmodifiableList(adapters);
+        synchronized (MultiblockAdapterRegistry.class) {
+            activeEnabledStates = Arrays.copyOf(enabledStates, enabledStates.length);
+            activeAdapters = Collections.unmodifiableList(adapters);
+        }
         return activeAdapters;
     }
 
@@ -96,7 +102,7 @@ public final class MultiblockAdapterRegistry {
         return Collections.unmodifiableList(List.copyOf(REGISTRATIONS.values()));
     }
 
-    static void clearForTests() {
+    static synchronized void clearForTests() {
         REGISTRATIONS.clear();
         sortedRegistrations = List.of();
         activeAdapters = List.of();
@@ -111,22 +117,24 @@ public final class MultiblockAdapterRegistry {
         }
         var sorted = new ArrayList<>(REGISTRATIONS.values());
         sorted.sort(Comparator.comparingInt(AdapterRegistration::priority));
-        sortedRegistrations = List.copyOf(sorted);
-        activeEnabledStates = new boolean[0];
-        if (hasDynamicEnabledSupplier) {
-            activeAdapters = List.of();
-        } else {
-            var adapters = new ArrayList<MultiblockAdapter>(sortedRegistrations.size());
-            for (var registration : sortedRegistrations) {
-                adapters.add(registration.adapter());
+        synchronized (MultiblockAdapterRegistry.class) {
+            sortedRegistrations = List.copyOf(sorted);
+            activeEnabledStates = new boolean[0];
+            if (hasDynamicEnabledSupplier) {
+                activeAdapters = List.of();
+            } else {
+                var adapters = new ArrayList<MultiblockAdapter>(sortedRegistrations.size());
+                for (var registration : sortedRegistrations) {
+                    adapters.add(registration.adapter());
+                }
+                activeAdapters = Collections.unmodifiableList(adapters);
             }
-            activeAdapters = Collections.unmodifiableList(adapters);
+            cacheDirty = false;
         }
-        cacheDirty = false;
     }
 
     private static ResourceLocation defaultId(MultiblockAdapter adapter) {
-        return new ResourceLocation(
+        return ResourceLocation.fromNamespaceAndPath(
                 AE2LTPackagedProvider.MODID,
                 toSnakeCase(adapter.getClass().getSimpleName()));
     }

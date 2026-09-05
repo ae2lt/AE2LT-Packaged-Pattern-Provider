@@ -26,14 +26,25 @@ public final class PackagedCoreClientExtensions {
     private static final class LazyRenderer implements IClientItemExtensions {
         static final LazyRenderer INSTANCE = new LazyRenderer();
 
-        private PackagedCoreItemRenderer renderer;
+        // volatile + double-checked locking so the renderer's publication is
+        // safe across the (rare) case of multiple render threads during chunk
+        // load. BlockEntityWithoutLevelRenderer holds a reference to a
+        // Minecraft singleton, so a torn read here would NPE.
+        private volatile PackagedCoreItemRenderer renderer;
 
         @Override
         public BlockEntityWithoutLevelRenderer getCustomRenderer() {
-            if (renderer == null) {
-                renderer = new PackagedCoreItemRenderer();
+            PackagedCoreItemRenderer local = renderer;
+            if (local == null) {
+                synchronized (this) {
+                    local = renderer;
+                    if (local == null) {
+                        local = new PackagedCoreItemRenderer();
+                        renderer = local;
+                    }
+                }
             }
-            return renderer;
+            return local;
         }
     }
 }

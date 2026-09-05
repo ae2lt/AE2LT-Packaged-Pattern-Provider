@@ -7,7 +7,12 @@
   "mixins": [
     "MenuTypeBuilderAccessor",
     "PatternProviderLogicAccessor",
-    "PatternProviderLogicMixin"
+    "PatternProviderLogicMixin",
+    "AE2LightningTechCoreConfigCompatMixin",
+    "WirelessConnectorPacketMixin"
+  ],
+  "client": [
+    "WirelessConnectorItemMixin"
   ],
   "injectors": {
     "defaultRequire": 1

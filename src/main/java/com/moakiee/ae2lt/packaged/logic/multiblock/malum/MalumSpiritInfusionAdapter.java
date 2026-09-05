@@ -4,12 +4,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.BiFunction;
+import java.util.function.Consumer;
 import java.util.function.Function;
 
 import org.jetbrains.annotations.Nullable;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
@@ -29,8 +29,12 @@ import appeng.api.stacks.GenericStack;
 import appeng.api.stacks.KeyCounter;
 
 import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AcceptedInsertion;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterPersistentScope;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterRecipeTypes;
+import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchCommitException;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchPlan;
-import com.moakiee.ae2lt.packaged.logic.multiblock.DroppedItemDispatch;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterBlocks;
 import com.moakiee.ae2lt.packaged.logic.multiblock.InsertionStrategy;
 import com.moakiee.ae2lt.packaged.logic.multiblock.MultiblockAdapter;
 import com.moakiee.ae2lt.packaged.logic.multiblock.TargetSlot;
@@ -46,6 +50,8 @@ import com.moakiee.ae2lt.packaged.logic.multiblock.binding.BindingResult;
 public final class MalumSpiritInfusionAdapter implements MultiblockAdapter {
 
     private static final String MOD_ID = "malum";
+    private static final String OUTPUT_STATE =
+            "malum_spirit_infusion:output_entities";
     private static final ResourceLocation ALTAR_BLOCK = malumId("spirit_altar");
     private static final ResourceLocation RECIPE_TYPE_ID = malumId("spirit_infusion");
     private static final int MAX_INPUT_AMOUNT = 512;
@@ -85,6 +91,59 @@ public final class MalumSpiritInfusionAdapter implements MultiblockAdapter {
     }
 
     @Override
+    public boolean canDispatch(ServerLevel level, BlockPos mainPos, Object handle,
+                               AdapterPersistentScope scope) {
+        if (MalumDroppedItemOwnership.blocksDispatch(
+                level, mainPos, scope, OUTPUT_STATE)) {
+            var ownership = MalumDroppedItemOwnership.load(
+                    level, mainPos, scope, OUTPUT_STATE);
+            if (ownership != null) {
+                retryPendingActivation(level, mainPos, ownership);
+            }
+            return false;
+        }
+        return canDispatch(level, mainPos, handle);
+    }
+
+    @Override
+    public void tickPending(ServerLevel level, BlockPos mainPos,
+                            AdapterPersistentScope scope) {
+        var ownership = MalumDroppedItemOwnership.load(level, mainPos, scope, OUTPUT_STATE);
+        if (ownership == null) {
+            return;
+        }
+        if (MalumDroppedItemOwnership.expired(level, ownership)) {
+            MalumDroppedItemOwnership.logStale(level, mainPos, ownership, OUTPUT_STATE);
+        }
+        retryPendingActivation(level, mainPos, ownership);
+    }
+
+    private void retryPendingActivation(ServerLevel level, BlockPos mainPos,
+                                        MalumDroppedItemOwnership.HarvestState ownership) {
+        var be = level.getBlockEntity(mainPos);
+        if (be == null || !recognizesMain(level, mainPos, be)
+                || !MalumReflection.isAltarIdle(be)) {
+            return;
+        }
+        var mainInventory = MalumReflection.altarInventory(be);
+        var spiritInventory = MalumReflection.altarSpiritInventory(be);
+        var extrasInventory = MalumReflection.altarExtrasInventory(be);
+        if (mainInventory == null || spiritInventory == null || extrasInventory == null
+                || mainInventory.getSlots() < 1) {
+            return;
+        }
+        boolean hasCoreInput = !MalumAdapterSupport.inventoryEmpty(mainInventory)
+                || !MalumAdapterSupport.inventoryEmpty(spiritInventory)
+                || !MalumAdapterSupport.inventoryEmpty(extrasInventory);
+        boolean hasPedestalInput = loadedPedestals(level, mainPos).stream()
+                .anyMatch(pedestal -> !pedestalEmpty(pedestal));
+        if (!hasCoreInput && !hasPedestalInput) {
+            return;
+        }
+        MalumReflection.recalculateAltar(level, mainPos, ownership.recipeId());
+    }
+
+    @Override
     public boolean canDispatch(ServerLevel level, BlockPos mainPos, Object handle) {
         if (!(handle instanceof InfusionBindHandle bind) || bind.recipes().isEmpty()) {
             return false;
@@ -118,7 +177,19 @@ public final class MalumSpiritInfusionAdapter implements MultiblockAdapter {
     public DispatchPlan planWithBinding(ServerLevel level, BlockPos mainPos,
                                         IPatternDetails pattern, KeyCounter[] inputs,
                                         Object handle, IActionSource source) {
-        if (!(handle instanceof InfusionBindHandle bind)) {
+        return planWithBinding(level, mainPos, pattern, inputs, handle, source,
+                AdapterPersistentScope.NOOP);
+    }
+
+    @Override
+    @Nullable
+    public DispatchPlan planWithBinding(ServerLevel level, BlockPos mainPos,
+                                        IPatternDetails pattern, KeyCounter[] inputs,
+                                        Object handle, IActionSource source,
+                                        AdapterPersistentScope scope) {
+        if (!(handle instanceof InfusionBindHandle bind)
+                || MalumDroppedItemOwnership.blocksDispatch(
+                        level, mainPos, scope, OUTPUT_STATE)) {
             return null;
         }
         var be = level.getBlockEntity(mainPos);
@@ -199,25 +270,112 @@ public final class MalumSpiritInfusionAdapter implements MultiblockAdapter {
                     pedestalInserter(level, mainPos, placement)));
         }
         var targets = orderTargetsForAltarTrigger(extraTargets, spiritTargets, mainTarget);
+        var preexistingEntities = MalumDroppedItemOwnership.capture(
+                level, altarOutputAabb(mainPos), match.output());
 
         return new DispatchPlan(
                 List.copyOf(targets),
-                () -> MalumReflection.recalculateAltar(level, mainPos));
+                () -> {
+                    MalumDroppedItemOwnership.store(
+                            level, mainPos, scope, OUTPUT_STATE, preexistingEntities,
+                            match.output(), match.recipeId());
+                    if (!MalumReflection.recalculateAltar(level, mainPos, match.recipeId())) {
+                        throw new DispatchCommitException(
+                                "Malum Spirit Altar did not activate the expected recipe "
+                                        + match.recipeId());
+                    }
+                },
+                (accepted, recovered) -> recoverPartialDispatch(
+                        level, mainPos, scope, match, extraPlacements, targets,
+                        accepted, recovered));
     }
 
     @Override
     public List<GenericStack> extractOutputs(ServerLevel level, BlockPos mainPos,
                                              AllowedOutputFilter filter,
                                              IActionSource source) {
+        return extractOutputs(level, mainPos, filter, source,
+                AdapterPersistentScope.NOOP);
+    }
+
+    @Override
+    public List<GenericStack> extractOutputs(ServerLevel level, BlockPos mainPos,
+                                             AllowedOutputFilter filter,
+                                             IActionSource source,
+                                             AdapterPersistentScope scope) {
         var be = level.getBlockEntity(mainPos);
-        if (be == null || !recognizesMain(level, mainPos, be)) {
+        if (be == null || !recognizesMain(level, mainPos, be)
+                || !MalumReflection.isAltarIdle(be)) {
             return List.of();
         }
-        return DroppedItemDispatch.collectOutputs(
-                level,
-                altarOutputAabb(mainPos),
-                filter,
-                entity -> true);
+
+        var ownership = MalumDroppedItemOwnership.load(
+                level, mainPos, scope, OUTPUT_STATE);
+        if (ownership == null) {
+            return List.of();
+        }
+        if (MalumDroppedItemOwnership.expired(level, ownership)) {
+            MalumDroppedItemOwnership.logStale(level, mainPos, ownership, OUTPUT_STATE);
+        }
+
+        var outputs = MalumDroppedItemOwnership.collectNewOutputs(
+                level, altarOutputAabb(mainPos), ownership);
+        if (!outputs.isEmpty()) {
+            MalumDroppedItemOwnership.clear(level, mainPos, scope, OUTPUT_STATE);
+        }
+        return outputs;
+    }
+
+    private static void recoverPartialDispatch(
+            ServerLevel level,
+            BlockPos mainPos,
+            AdapterPersistentScope scope,
+            RecipeMatch match,
+            List<ExtraPlacement<AEItemKey>> extraPlacements,
+            List<TargetSlot> targets,
+            List<AcceptedInsertion> acceptedInsertions,
+            Consumer<GenericStack> recovered) {
+        var be = level.getBlockEntity(mainPos);
+        if (be == null || !MalumReflection.isAltarIdle(be)) {
+            return;
+        }
+        int extraCount = extraPlacements.size();
+        int spiritCount = match.spirits().size();
+        int recoveredCount = 0;
+        for (var accepted : acceptedInsertions) {
+            int targetIndex = targets.indexOf(accepted.target());
+            if (targetIndex < 0) {
+                continue;
+            }
+            GenericStack stack = null;
+            if (targetIndex < extraCount) {
+                var pedestal = pedestalAt(
+                        level, mainPos, extraPlacements.get(targetIndex).pos());
+                if (pedestal != null) {
+                    stack = MalumAdapterSupport.recoverExactInsertion(
+                            pedestal.inventory(), 0, accepted.stack());
+                }
+            } else if (targetIndex < extraCount + spiritCount) {
+                var inventory = MalumReflection.altarSpiritInventory(be);
+                if (inventory != null) {
+                    stack = MalumAdapterSupport.recoverExactInsertion(
+                            inventory, targetIndex - extraCount, accepted.stack());
+                }
+            } else if (targetIndex == extraCount + spiritCount) {
+                var inventory = MalumReflection.altarInventory(be);
+                if (inventory != null) {
+                    stack = MalumAdapterSupport.recoverExactInsertion(
+                            inventory, 0, accepted.stack());
+                }
+            }
+            if (stack != null) {
+                recovered.accept(stack);
+                recoveredCount++;
+            }
+        }
+        if (recoveredCount == acceptedInsertions.size()) {
+            MalumDroppedItemOwnership.clear(level, mainPos, scope, OUTPUT_STATE);
+        }
     }
 
     @Nullable
@@ -256,8 +414,13 @@ public final class MalumSpiritInfusionAdapter implements MultiblockAdapter {
                     recipe,
                     level,
                     MalumAdapterSupport.toItemStack(match.main()));
-            if (output != null && !output.isEmpty() && MalumAdapterSupport.outputMatches(pattern, output)) {
-                return new RecipeMatch(match.main(), match.spirits(), match.extras());
+            var recipeId = MalumReflection.recipeId(recipe);
+            if (output != null
+                    && !output.isEmpty()
+                    && recipeId != null
+                    && MalumAdapterSupport.outputMatches(pattern, output)) {
+                return new RecipeMatch(
+                        recipeId, match.main(), match.spirits(), match.extras(), output);
             }
         }
         return null;
@@ -265,8 +428,7 @@ public final class MalumSpiritInfusionAdapter implements MultiblockAdapter {
 
     private static List<Object> findCandidateRecipes(ServerLevel level) {
         var matches = new ArrayList<Object>();
-        for (var holder : recipes(level)) {
-            var recipe = holder;
+        for (var recipe : recipes(level)) {
             var mainInput = MalumReflection.infusionInput(recipe);
             var spiritStacks = MalumReflection.infusionSpirits(recipe);
             var extraInputs = MalumReflection.infusionExtras(recipe);
@@ -412,16 +574,18 @@ public final class MalumSpiritInfusionAdapter implements MultiblockAdapter {
             List<MalumRecipeInputMatcher.Assignment<T>> extras,
             List<MalumReflection.Pedestal> pedestals,
             Function<MalumRecipeInputMatcher.Assignment<T>, ItemStack> stackFactory) {
-        var simulated = copyPedestalStacks(pedestals);
         var placements = new ArrayList<ExtraPlacement<T>>();
+        var usedPedestals = new java.util.HashSet<BlockPos>();
 
         for (var extra : extras) {
             ExtraPlacement<T> placement = null;
-            for (int index = 0; index < pedestals.size(); index++) {
-                var pedestal = pedestals.get(index);
+            for (var pedestal : pedestals) {
+                if (usedPedestals.contains(pedestal.pos())) {
+                    continue;
+                }
                 long placeable = maxPlaceableIntoSlot(
                         pedestal.inventory(),
-                        simulated.get(index),
+                        ItemStack.EMPTY,
                         0,
                         extra.value(),
                         extra.amount(),
@@ -430,8 +594,7 @@ public final class MalumSpiritInfusionAdapter implements MultiblockAdapter {
                     continue;
                 }
 
-                var stack = stackFactory.apply(extra);
-                applyToSimulatedSlot(simulated, index, stack);
+                usedPedestals.add(pedestal.pos());
                 placement = new ExtraPlacement<>(extra, pedestal.pos());
                 break;
             }
@@ -520,10 +683,12 @@ public final class MalumSpiritInfusionAdapter implements MultiblockAdapter {
 
     @SuppressWarnings({"rawtypes", "unchecked"})
     private static List<Recipe<?>> recipes(ServerLevel level) {
-        return BuiltInRegistries.RECIPE_TYPE.getOptional(RECIPE_TYPE_ID)
-                .map(type -> (List<Recipe<?>>) (List<?>) level.getRecipeManager()
-                        .getAllRecipesFor((RecipeType) type))
-                .orElse(List.of());
+        var type = AdapterRecipeTypes.find(RECIPE_TYPE_ID);
+        if (type == null) {
+            return List.of();
+        }
+        return (List<Recipe<?>>) (List<?>) level.getRecipeManager()
+                .getAllRecipesFor((RecipeType) type);
     }
 
     private static boolean isMalumLoaded() {
@@ -534,12 +699,10 @@ public final class MalumSpiritInfusionAdapter implements MultiblockAdapter {
         }
     }
 
-    private static ResourceLocation blockId(BlockState state) {
-        return BuiltInRegistries.BLOCK.getKey(state.getBlock());
-    }
+    private static ResourceLocation blockId(BlockState state) { return AdapterBlocks.idOf(state); }
 
     private static ResourceLocation malumId(String path) {
-        return new ResourceLocation(MOD_ID, path);
+        return ResourceLocation.fromNamespaceAndPath(MOD_ID, path);
     }
 
     private static boolean hasSingleItemOutput(IPatternDetails pattern) {
@@ -557,13 +720,17 @@ public final class MalumSpiritInfusionAdapter implements MultiblockAdapter {
     }
 
     private record RecipeMatch(
+            ResourceLocation recipeId,
             MalumRecipeInputMatcher.Assignment<AEItemKey> main,
             List<MalumRecipeInputMatcher.Assignment<AEItemKey>> spirits,
-            List<MalumRecipeInputMatcher.Assignment<AEItemKey>> extras) {
+            List<MalumRecipeInputMatcher.Assignment<AEItemKey>> extras,
+            ItemStack output) {
         RecipeMatch {
+            Objects.requireNonNull(recipeId, "recipeId");
             Objects.requireNonNull(main, "main");
             spirits = List.copyOf(spirits);
             extras = List.copyOf(extras);
+            output = output.copy();
         }
     }
 

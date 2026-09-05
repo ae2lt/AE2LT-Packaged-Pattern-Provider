@@ -19,7 +19,7 @@ item_ids:
 <ItemLink id="ae2ltpp:avaritia_extreme_table_packaged_core" />
 **Mod:** Re-Avaritia
 
-Automates the Sculk 3×3, Nether 5×5, End 7×7, and Extreme 9×9 crafting tables.
+Automates the Re-Avaritia 1.4.1 runtime layouts: Sculk 3×3 (tier 1), Nether 5×5 (tier 2), End 7×7 (tier 3), and Extreme 9×9 (tier 4). Each block has its own exact handler-slot profile; a table with a different slot count is rejected rather than guessed.
 Place the provider against a table and encode the corresponding **processing pattern**. The provider automatically retrieves the crafted result and any crafting remainders, such as empty buckets.
 
 ## ⚠ One packaged core covers lower tiers

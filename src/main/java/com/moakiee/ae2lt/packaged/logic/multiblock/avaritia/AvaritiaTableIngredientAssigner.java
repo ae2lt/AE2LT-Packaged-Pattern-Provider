@@ -2,7 +2,6 @@ package com.moakiee.ae2lt.packaged.logic.multiblock.avaritia;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.BiPredicate;
@@ -46,19 +45,42 @@ final class AvaritiaTableIngredientAssigner {
             return null;
         }
 
+        var candidates = new boolean[ingredients.size()][units.size()];
+        var candidateCounts = new int[ingredients.size()];
+        for (int ingredientIndex = 0; ingredientIndex < ingredients.size(); ingredientIndex++) {
+            for (int unitIndex = 0; unitIndex < units.size(); unitIndex++) {
+                if (matcher.test(ingredients.get(ingredientIndex), units.get(unitIndex))) {
+                    candidates[ingredientIndex][unitIndex] = true;
+                    candidateCounts[ingredientIndex]++;
+                }
+            }
+        }
+
         var orderedIngredientIndexes = new ArrayList<Integer>(ingredients.size());
         for (int i = 0; i < ingredients.size(); i++) {
             orderedIngredientIndexes.add(i);
         }
-        orderedIngredientIndexes.sort(Comparator.comparingInt(index ->
-                candidateCount(ingredients.get(index), units, matcher)));
+        orderedIngredientIndexes.sort(java.util.Comparator
+                .comparingInt((Integer index) -> candidateCounts[index])
+                .thenComparingInt(Integer::intValue));
 
-        var used = new boolean[units.size()];
+        // Stable Kuhn augmenting paths give a maximum matching without factorial search.
+        var ingredientByUnit = new int[units.size()];
+        Arrays.fill(ingredientByUnit, -1);
+        for (int ingredientIndex : orderedIngredientIndexes) {
+            if (!augment(ingredientIndex, candidates, ingredientByUnit,
+                    new boolean[units.size()])) {
+                return null;
+            }
+        }
+
         var chosenUnitByIngredient = new int[ingredients.size()];
         Arrays.fill(chosenUnitByIngredient, -1);
-        if (!assignOne(0, ingredients, units, matcher,
-                orderedIngredientIndexes, used, chosenUnitByIngredient)) {
-            return null;
+        for (int unitIndex = 0; unitIndex < ingredientByUnit.length; unitIndex++) {
+            int ingredientIndex = ingredientByUnit[unitIndex];
+            if (ingredientIndex >= 0) {
+                chosenUnitByIngredient[ingredientIndex] = unitIndex;
+            }
         }
 
         var assigned = new ArrayList<K>(ingredients.size());
@@ -72,43 +94,21 @@ final class AvaritiaTableIngredientAssigner {
         return List.copyOf(assigned);
     }
 
-    private static <I, K> int candidateCount(I ingredient,
-                                             List<K> units,
-                                             BiPredicate<I, K> matcher) {
-        int count = 0;
-        for (var unit : units) {
-            if (matcher.test(ingredient, unit)) {
-                count++;
-            }
-        }
-        return count;
-    }
-
-    private static <I, K> boolean assignOne(int orderIndex,
-                                            List<I> ingredients,
-                                            List<K> units,
-                                            BiPredicate<I, K> matcher,
-                                            List<Integer> orderedIngredientIndexes,
-                                            boolean[] used,
-                                            int[] chosenUnitByIngredient) {
-        if (orderIndex >= orderedIngredientIndexes.size()) {
-            return true;
-        }
-
-        int ingredientIndex = orderedIngredientIndexes.get(orderIndex);
-        var ingredient = ingredients.get(ingredientIndex);
-        for (int unitIndex = 0; unitIndex < units.size(); unitIndex++) {
-            if (used[unitIndex] || !matcher.test(ingredient, units.get(unitIndex))) {
+    private static boolean augment(int ingredientIndex,
+                                   boolean[][] candidates,
+                                   int[] ingredientByUnit,
+                                   boolean[] visitedUnits) {
+        for (int unitIndex = 0; unitIndex < ingredientByUnit.length; unitIndex++) {
+            if (!candidates[ingredientIndex][unitIndex] || visitedUnits[unitIndex]) {
                 continue;
             }
-            used[unitIndex] = true;
-            chosenUnitByIngredient[ingredientIndex] = unitIndex;
-            if (assignOne(orderIndex + 1, ingredients, units, matcher,
-                    orderedIngredientIndexes, used, chosenUnitByIngredient)) {
+            visitedUnits[unitIndex] = true;
+            int displacedIngredient = ingredientByUnit[unitIndex];
+            if (displacedIngredient < 0
+                    || augment(displacedIngredient, candidates, ingredientByUnit, visitedUnits)) {
+                ingredientByUnit[unitIndex] = ingredientIndex;
                 return true;
             }
-            chosenUnitByIngredient[ingredientIndex] = -1;
-            used[unitIndex] = false;
         }
         return false;
     }

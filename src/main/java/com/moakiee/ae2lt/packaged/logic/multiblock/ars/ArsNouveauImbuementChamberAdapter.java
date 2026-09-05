@@ -11,7 +11,6 @@ import java.util.function.Predicate;
 import org.jetbrains.annotations.Nullable;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.Container;
@@ -24,7 +23,9 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.fml.ModList;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
 
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterRecipeTypes;
 import com.moakiee.ae2lt.packaged.logic.multiblock.BlockCapabilities;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterBlocks;
 import net.minecraftforge.items.IItemHandler;
 
 import appeng.api.config.Actionable;
@@ -238,8 +239,7 @@ public final class ArsNouveauImbuementChamberAdapter implements MultiblockAdapte
 
     @Nullable
     private static Object findCandidateRecipe(ServerLevel level, IPatternDetails pattern) {
-        for (var holder : recipes(level)) {
-            var recipe = holder;
+        for (var recipe : recipes(level)) {
             var result = resultItem(recipe, level);
             if (result.isEmpty() || !outputMatches(pattern, result)) {
                 continue;
@@ -284,8 +284,7 @@ public final class ArsNouveauImbuementChamberAdapter implements MultiblockAdapte
 
     @Nullable
     private static CompletedRecipe findCompletedRecipe(ServerLevel level, BlockPos mainPos, ItemStack outputStack) {
-        for (var holder : recipes(level)) {
-            var recipe = holder;
+        for (var recipe : recipes(level)) {
             var result = resultItem(recipe, level);
             if (!sameStackAndCount(outputStack, result)) {
                 continue;
@@ -527,6 +526,10 @@ public final class ArsNouveauImbuementChamberAdapter implements MultiblockAdapte
     }
 
     private static ItemStack resultItem(Object recipe, ServerLevel level) {
+        var output = ArsReflection.output(recipe);
+        if (output != null && !output.isEmpty()) {
+            return output;
+        }
         if (!(recipe instanceof Recipe<?> typedRecipe)) {
             return ItemStack.EMPTY;
         }
@@ -585,23 +588,20 @@ public final class ArsNouveauImbuementChamberAdapter implements MultiblockAdapte
             return registryRecipes;
         }
 
-        return BuiltInRegistries.RECIPE_TYPE.getOptional(RECIPE_TYPE_ID)
-                .map(type -> recipesForType(level, type))
-                .orElse(List.of());
+        var type = AdapterRecipeTypes.find(RECIPE_TYPE_ID);
+        if (type == null) {
+            return List.of();
+        }
+        return (List<Recipe<?>>) (List<?>) level.getRecipeManager()
+                .getAllRecipesFor((RecipeType) type);
     }
 
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private static List<Recipe<?>> recipesForType(ServerLevel level, RecipeType<?> type) {
-        return (List<Recipe<?>>) (List<?>) level.getRecipeManager().getAllRecipesFor((RecipeType) type);
-    }
 
     private static boolean isArsLoaded() {
         return ModList.get().isLoaded(MOD_ID);
     }
 
-    private static ResourceLocation blockId(BlockState state) {
-        return BuiltInRegistries.BLOCK.getKey(state.getBlock());
-    }
+    private static ResourceLocation blockId(BlockState state) { return AdapterBlocks.idOf(state); }
 
     private static boolean isPedestalBlock(BlockState state) {
         var id = blockId(state);
@@ -609,7 +609,7 @@ public final class ArsNouveauImbuementChamberAdapter implements MultiblockAdapte
     }
 
     private static ResourceLocation arsId(String path) {
-        return new ResourceLocation(MOD_ID, path);
+        return ResourceLocation.fromNamespaceAndPath(MOD_ID, path);
     }
 
     private record PlannedUnit(AEItemKey key) {
@@ -659,6 +659,10 @@ public final class ArsNouveauImbuementChamberAdapter implements MultiblockAdapte
         private static volatile @Nullable Method getRecipesMethod;
         private static volatile @Nullable Method getInputMethod;
         private static volatile @Nullable Method getPedestalItemsMethod;
+        // 1.20.x exposes these as public fields instead of getter methods.
+        private static volatile @Nullable Field inputField;
+        private static volatile @Nullable Field pedestalItemsField;
+        private static volatile @Nullable Field outputField;
 
         static boolean isImbuementTile(Object value) {
             ensureLookup();
@@ -696,15 +700,40 @@ public final class ArsNouveauImbuementChamberAdapter implements MultiblockAdapte
             }
         }
 
+        /** Output stack; vanilla {@code getResultItem} is overridden empty on 1.20.x. */
         @Nullable
-        static Ingredient getInput(Object recipe) {
+        static ItemStack output(Object recipe) {
             ensureLookup();
-            if (getInputMethod == null) {
+            var field = outputField;
+            if (field == null) {
                 return null;
             }
             try {
-                var value = getInputMethod.invoke(recipe);
-                return value instanceof Ingredient ingredient ? ingredient : null;
+                return field.get(recipe) instanceof ItemStack stack ? stack.copy() : null;
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+                return null;
+            }
+        }
+
+        @Nullable
+        static Ingredient getInput(Object recipe) {
+            ensureLookup();
+            if (getInputMethod != null) {
+                try {
+                    var value = getInputMethod.invoke(recipe);
+                    if (value instanceof Ingredient ingredient) {
+                        return ingredient;
+                    }
+                } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+                    // fall through to the field fallback
+                }
+            }
+            var field = inputField;
+            if (field == null) {
+                return null;
+            }
+            try {
+                return field.get(recipe) instanceof Ingredient ingredient ? ingredient : null;
             } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
                 return null;
             }
@@ -714,11 +743,29 @@ public final class ArsNouveauImbuementChamberAdapter implements MultiblockAdapte
         @SuppressWarnings("unchecked")
         static List<Ingredient> getPedestalItems(Object recipe) {
             ensureLookup();
-            if (getPedestalItemsMethod == null) {
+            if (getPedestalItemsMethod != null) {
+                try {
+                    var value = getPedestalItemsMethod.invoke(recipe);
+                    if (value instanceof List<?> list) {
+                        var result = new ArrayList<Ingredient>(list.size());
+                        for (var item : list) {
+                            if (!(item instanceof Ingredient ingredient)) {
+                                return null;
+                            }
+                            result.add(ingredient);
+                        }
+                        return List.copyOf(result);
+                    }
+                } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+                    // fall through to the field fallback
+                }
+            }
+            var field = pedestalItemsField;
+            if (field == null) {
                 return null;
             }
             try {
-                var value = getPedestalItemsMethod.invoke(recipe);
+                Object value = field.get(recipe);
                 if (!(value instanceof List<?> list)) {
                     return null;
                 }
@@ -756,18 +803,42 @@ public final class ArsNouveauImbuementChamberAdapter implements MultiblockAdapte
             imbuementTileClass = Class.forName(IMBUEMENT_TILE_CLASS);
             arcanePedestalTileClass = Class.forName(ARCANE_PEDESTAL_TILE_CLASS);
 
-            var registryClass = Class.forName(IMBUEMENT_REGISTRY_CLASS);
-            registryInstanceField = registryClass.getField("INSTANCE");
-            getRecipesMethod = registryClass.getMethod("getRecipes");
+            // Steps below resolve independently so a missing member on one mod
+            // version cannot disable the remaining lookups.
+            try {
+                var registryClass = Class.forName(IMBUEMENT_REGISTRY_CLASS);
+                registryInstanceField = registryClass.getField("INSTANCE");
+                getRecipesMethod = registryClass.getMethod("getRecipes");
+            } catch (ReflectiveOperationException ignored) {
+                registryInstanceField = null;
+                getRecipesMethod = null;
+            }
 
             try {
                 var recipeClass = Class.forName(
                         "com.hollingsworth.arsnouveau.common.crafting.recipes.ImbuementRecipe");
                 getInputMethod = recipeClass.getMethod("getInput");
-                getPedestalItemsMethod = recipeClass.getMethod("getPedestalItems");
             } catch (ReflectiveOperationException ignored) {
                 getInputMethod = null;
+            }
+            try {
+                var recipeClass = Class.forName(
+                        "com.hollingsworth.arsnouveau.common.crafting.recipes.ImbuementRecipe");
+                getPedestalItemsMethod = recipeClass.getMethod("getPedestalItems");
+            } catch (ReflectiveOperationException ignored) {
                 getPedestalItemsMethod = null;
+            }
+
+            try {
+                var recipeClass = Class.forName(
+                        "com.hollingsworth.arsnouveau.common.crafting.recipes.ImbuementRecipe");
+                inputField = recipeClass.getField("input");
+                pedestalItemsField = recipeClass.getField("pedestalItems");
+                outputField = recipeClass.getField("output");
+            } catch (ReflectiveOperationException ignored) {
+                inputField = null;
+                pedestalItemsField = null;
+                outputField = null;
             }
         }
     }

@@ -1,0 +1,46 @@
+{
+  "type": "forge:conditional",
+  "recipes": [
+    {
+      "conditions": [
+        {
+          "type": "forge:mod_loaded",
+          "modid": "mysticaladaptations"
+        },
+        {
+          "type": "forge:mod_loaded",
+          "modid": "mysticalagradditions"
+        },
+        {
+          "type": "forge:item_exists",
+          "item": "mysticalagriculture:awakened_supremium_reprocessor"
+        }
+      ],
+      "recipe": {
+        "type": "crafting_shaped",
+        "pattern": [
+          " E ",
+          "IFI",
+          " B "
+        ],
+        "key": {
+          "E": {
+            "item": "mysticalagradditions:insanium_essence"
+          },
+          "I": {
+            "item": "mysticalagradditions:insanium_ingot"
+          },
+          "F": {
+            "item": "mysticalagriculture:awakened_supremium_reprocessor"
+          },
+          "B": {
+            "item": "mysticalagradditions:insanium_block"
+          }
+        },
+        "result": {
+          "item": "mysticaladaptations:insanium_reprocessor"
+        }
+      }
+    }
+  ]
+}

@@ -240,9 +240,7 @@ public class StablePatternProviderLogic extends PatternProviderLogic {
             if (targetLevel == null || !targetLevel.isLoaded(connection.pos())) {
                 continue;
             }
-            if (targetLevel.getBlockEntity(connection.pos()) == null) {
-                continue;
-            }
+            // Block-only targets are valid candidates; adapters decide support.
             valid.add(connection);
         }
         validConnectionsCache = List.copyOf(valid);
@@ -274,10 +272,13 @@ public class StablePatternProviderLogic extends PatternProviderLogic {
         // Machine-specific extraction belongs in a subclass.
     }
 
-    public boolean hasAnyTickWork() {
+    protected boolean hasAutoReturnWork() {
         return providerHost.getReturnMode()
-                == StablePatternProviderBlockEntity.ReturnMode.AUTO
-                || !returnInventory.isEmpty();
+                == StablePatternProviderBlockEntity.ReturnMode.AUTO;
+    }
+
+    public boolean hasAnyTickWork() {
+        return hasAutoReturnWork() || !returnInventory.isEmpty();
     }
 
     protected final void alertGridTick() {
@@ -445,9 +446,15 @@ public class StablePatternProviderLogic extends PatternProviderLogic {
                 return TickRateModulation.SLEEP;
             }
             boolean parentDidWork = accessor().ae2ltpp$doWork();
+            if (parentDidWork) {
+                // Network injection can decrement the return inventory without its listener.
+                saveChanges();
+            }
             tickAutoReturn();
             if (hasAnyTickWork()) {
-                return TickRateModulation.URGENT;
+                // Auto-return is throttled independently; let AE2 back off between
+                // polls instead of keeping every provider at urgent cadence.
+                return TickRateModulation.SLOWER;
             }
             if (accessor().ae2ltpp$hasWorkToDo()) {
                 return parentDidWork

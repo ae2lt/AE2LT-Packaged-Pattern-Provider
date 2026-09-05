@@ -39,7 +39,7 @@ class StablePatternProviderNbtMigrationTest {
     void decodesTheMainBranchProviderSchemaWithoutRenamingFields() {
         var dimension = ResourceKey.create(
                 Registries.DIMENSION,
-                new ResourceLocation("migration", "factory"));
+                ResourceLocation.fromNamespaceAndPath("migration", "factory"));
         var connection = new WirelessConnection(
                 dimension, new BlockPos(12, 34, -56), Direction.WEST);
 

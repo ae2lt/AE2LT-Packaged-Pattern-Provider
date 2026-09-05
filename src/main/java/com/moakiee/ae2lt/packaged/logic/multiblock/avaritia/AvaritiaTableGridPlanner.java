@@ -12,6 +12,17 @@ final class AvaritiaTableGridPlanner {
     private AvaritiaTableGridPlanner() {
     }
 
+    static <T> List<Assignment<T>> placeSequential(int gridSize, List<T> values) {
+        if (gridSize <= 0 || values.size() > gridSize * gridSize) {
+            return List.of();
+        }
+        var assignments = new ArrayList<Assignment<T>>(values.size());
+        for (int slot = 0; slot < values.size(); slot++) {
+            assignments.add(new Assignment<>(slot, values.get(slot)));
+        }
+        return List.copyOf(assignments);
+    }
+
     static <T> List<Assignment<T>> place(int recipeWidth, int gridSize, List<@Nullable T> recipeCells) {
         if (recipeWidth <= 0 || gridSize <= 0 || recipeWidth > gridSize) {
             return List.of();

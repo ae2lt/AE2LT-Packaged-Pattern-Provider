@@ -15,10 +15,10 @@ item_ids:
 
 Automatically performs Spirit Focusing in the Spirit Crucible.
 Place the provider against the **Spirit Crucible** and encode the corresponding **processing pattern**.
-For each craft, the provider performs Spirit Focusing automatically, then retrieves the result and the augments when focusing finishes.
+For each craft, the provider performs Spirit Focusing automatically, then retrieves the result and the catalyst when focusing finishes.
 The provider starts only when the Crucible is idle and its slots are empty.
 
-## ⚠ Augments, ingredients, and patterns
+## ⚠ Catalyst, ingredients, and patterns
 
-* When encoding the pattern, include every **augment** and **spirit shard** used by the recipe as pattern inputs. The only pattern output should be the focusing result.
-* Augments are not consumed by Malum recipes. They are returned to your ME network together with the result after Spirit Focusing finishes.
+* When encoding the pattern, include the recipe **catalyst** and every **spirit shard** as pattern inputs. The only pattern output should be the focusing result.
+* The catalyst is reusable rather than consumed. The provider returns it to your ME network together with the result when its post-craft identity can be verified; an unrecognized cracked or replaced variant is conservatively left in the Crucible.

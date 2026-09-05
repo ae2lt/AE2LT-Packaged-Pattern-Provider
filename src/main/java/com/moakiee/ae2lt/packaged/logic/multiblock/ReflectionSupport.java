@@ -67,6 +67,27 @@ public final class ReflectionSupport {
         }
     }
 
+    /** Invokes a mutation without turning an uncertain side effect into a rejection. */
+    public static Optional<Object> invokeMutation(Method method, Object target, Object... args) {
+        if (method == null) {
+            throw new IllegalStateException("Required mutation method is unavailable");
+        }
+        try {
+            return Optional.ofNullable(method.invoke(target, args));
+        } catch (InvocationTargetException e) {
+            var cause = e.getCause();
+            if (cause instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            if (cause instanceof LinkageError linkage) {
+                throw linkage;
+            }
+            throw new IllegalStateException("Mutation failed: " + method, cause);
+        } catch (IllegalAccessException | IllegalArgumentException e) {
+            throw new IllegalStateException("Cannot invoke mutation: " + method, e);
+        }
+    }
+
     private static Optional<Method> findDeclaredMethod(Class<?> type, String name, Class<?>... parameterTypes) {
         try {
             return Optional.of(type.getDeclaredMethod(name, parameterTypes));

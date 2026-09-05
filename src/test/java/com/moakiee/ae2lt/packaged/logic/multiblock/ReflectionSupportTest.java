@@ -1,6 +1,7 @@
 package com.moakiee.ae2lt.packaged.logic.multiblock;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
@@ -47,5 +48,27 @@ class ReflectionSupportTest {
         var result = ReflectionSupport.invoke(method.orElseThrow(), "value", 4, 1);
 
         assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void mutationInvocationPropagatesUnderlyingRuntimeException() {
+        var method = ReflectionSupport.findMethod(FaultyMutator.class, "mutate").orElseThrow();
+
+        var error = assertThrows(IllegalStateException.class,
+                () -> ReflectionSupport.invokeMutation(method, new FaultyMutator()));
+        assertEquals("mutation failed", error.getMessage());
+    }
+
+    @Test
+    void mutationInvocationRejectsMissingHandle() {
+        assertThrows(IllegalStateException.class,
+                () -> ReflectionSupport.invokeMutation(null, new FaultyMutator()));
+    }
+
+    private static final class FaultyMutator {
+        @SuppressWarnings("unused")
+        public void mutate() {
+            throw new IllegalStateException("mutation failed");
+        }
     }
 }

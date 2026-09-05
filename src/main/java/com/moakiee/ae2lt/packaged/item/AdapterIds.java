@@ -99,6 +99,6 @@ public final class AdapterIds {
             id("avaritia/extreme_smithing_packaged_core");
 
     private static ResourceLocation id(String path) {
-        return new ResourceLocation(AE2LTPackagedProvider.MODID, path);
+        return ResourceLocation.fromNamespaceAndPath(AE2LTPackagedProvider.MODID, path);
     }
 }

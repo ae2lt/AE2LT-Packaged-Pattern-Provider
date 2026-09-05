@@ -11,19 +11,19 @@
   },
   "essences": [
     {
-      "id": "mysticalagriculture:air_essence",
+      "item": "mysticalagriculture:air_essence",
       "count": 10
     },
     {
-      "id": "mysticalagriculture:earth_essence",
+      "item": "mysticalagriculture:earth_essence",
       "count": 10
     },
     {
-      "id": "mysticalagriculture:water_essence",
+      "item": "mysticalagriculture:water_essence",
       "count": 10
     },
     {
-      "id": "mysticalagriculture:fire_essence",
+      "item": "mysticalagriculture:fire_essence",
       "count": 10
     }
   ],
@@ -42,6 +42,6 @@
     }
   ],
   "result": {
-    "id": "ae2ltpp:ma_awakening_altar_packaged_core"
+    "item": "ae2ltpp:ma_awakening_altar_packaged_core"
   }
 }

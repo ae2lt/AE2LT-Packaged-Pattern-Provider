@@ -4,8 +4,12 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
 import java.util.function.BiFunction;
+import java.util.function.Consumer;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -14,6 +18,9 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.tags.TagKey;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.SpawnEggItem;
 import net.minecraft.world.item.crafting.Ingredient;
@@ -22,6 +29,7 @@ import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraftforge.fml.ModList;
 import net.minecraftforge.items.IItemHandler;
@@ -34,6 +42,10 @@ import appeng.api.stacks.GenericStack;
 import appeng.api.stacks.KeyCounter;
 
 import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
+import com.moakiee.ae2lt.packaged.patternprovider.StablePatternProviderBlockEntity.ReturnMode;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AcceptedInsertion;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterPersistentScope;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterRecipeTypes;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchPlan;
 import com.moakiee.ae2lt.packaged.logic.multiblock.InsertionStrategy;
 import com.moakiee.ae2lt.packaged.logic.multiblock.MultiblockAdapter;
@@ -57,6 +69,13 @@ public final class OccultismRitualAdapter implements MultiblockAdapter {
             org.slf4j.LoggerFactory.getLogger("ae2ltpp/occultism-ritual");
 
     private static final String MOD_ID = "occultism";
+    private static final String RITUAL_DISPATCHED_FLAG =
+            "occultism_ritual:dispatch_owned";
+    private static final String RITUAL_HARVEST_STATE =
+            "occultism_ritual:harvest_state";
+    private static final long STALE_STATE_AGE = 20L * 60L;
+    private static final Set<String> STALE_STATE_LOGGED =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
     private static final ResourceLocation RITUAL_RECIPE_TYPE = occultismId("ritual");
     private static final int MAX_INPUT_UNITS = 128;
 
@@ -95,6 +114,52 @@ public final class OccultismRitualAdapter implements MultiblockAdapter {
     }
 
     @Override
+    public boolean canDispatch(ServerLevel level, BlockPos mainPos, Object handle,
+                               AdapterPersistentScope scope) {
+        tickPending(level, mainPos, scope);
+        var stateKey = harvestStateKey(level);
+        var encoded = scope.getState(mainPos, stateKey);
+        var legacyState = scope.getState(mainPos, RITUAL_HARVEST_STATE);
+        if ((encoded != null && !encoded.isBlank())
+                || (legacyState != null && !legacyState.isBlank())
+                || scope.hasFlag(mainPos, dispatchedFlagKey(level))
+                || scope.hasFlag(mainPos, RITUAL_DISPATCHED_FLAG)) {
+            var state = OccultismHarvestState.decode(
+                    encoded, level.dimension().location());
+            if (state == null) {
+                LOG.warn("Retaining unreadable Occultism dispatch state instead of allowing overwrite: "
+                                + "dimension={} pos={}",
+                        level.dimension().location(), mainPos);
+            } else {
+                logStaleState(level, mainPos, state);
+            }
+            return false;
+        }
+        return canDispatch(level, mainPos, handle);
+    }
+
+    @Override
+    public boolean supportsPatternIndependentHarvest() {
+        return true;
+    }
+
+    @Override
+    public void tickPending(ServerLevel level, BlockPos mainPos, AdapterPersistentScope scope) {
+        var state = OccultismHarvestState.decode(
+                scope.getState(mainPos, harvestStateKey(level)), level.dimension().location());
+        if (state == null || (state.autoHarvest() && !state.complete())
+                || scope.getState(mainPos, RITUAL_HARVEST_STATE) != null
+                || scope.hasFlag(mainPos, RITUAL_DISPATCHED_FLAG)) {
+            return;
+        }
+        var be = level.getBlockEntity(mainPos);
+        if (be != null && recognizesMain(level, mainPos, be) && OccultismReflection.isIdle(be)) {
+            // OFF jobs own no products. AUTO jobs may retire only once their debt is paid.
+            clearHarvestState(level, mainPos, scope);
+        }
+    }
+
+    @Override
     public boolean canDispatch(ServerLevel level, BlockPos mainPos, Object handle) {
         if (!(handle instanceof OccultismBindHandle bind)) {
             LOG.debug("canDispatch: handle wrong type at {}", mainPos);
@@ -126,9 +191,21 @@ public final class OccultismRitualAdapter implements MultiblockAdapter {
     public DispatchPlan planWithBinding(ServerLevel level, BlockPos mainPos,
                                         IPatternDetails pattern, KeyCounter[] inputs,
                                         Object handle, IActionSource source) {
-        if (!(handle instanceof OccultismBindHandle bind)) {
+        return planWithBinding(level, mainPos, pattern, inputs, handle, source,
+                AdapterPersistentScope.NOOP);
+    }
+
+    @Override
+    @Nullable
+    public DispatchPlan planWithBinding(ServerLevel level, BlockPos mainPos,
+                                        IPatternDetails pattern, KeyCounter[] inputs,
+                                        Object handle, IActionSource source,
+                                        AdapterPersistentScope scope) {
+        if (!(handle instanceof OccultismBindHandle bind)
+                || !canDispatch(level, mainPos, handle, scope)) {
             return null;
         }
+        boolean autoHarvest = scope.getReturnMode() == ReturnMode.AUTO;
 
         var units = expandInputUnits(inputs);
         if (units == null || units.isEmpty()) {
@@ -150,6 +227,19 @@ public final class OccultismRitualAdapter implements MultiblockAdapter {
             return null;
         }
 
+        var expectedOutputs = autoHarvest ? patternItemOutputs(pattern) : List.<ItemStack>of();
+        if (expectedOutputs == null || !(bind.recipe() instanceof Recipe<?> recipe)) {
+            LOG.debug("planWithBinding: unsupported output or recipe type at {}", mainPos);
+            return null;
+        }
+        var preexistingEntities = autoHarvest ? captureEntityCounts(
+                level, ritualOutputAabb(mainPos), expectedOutputs) : Map.<UUID, Integer>of();
+        var bowlBaselines = autoHarvest ? captureOutputBowls(level, mainPos) : Map.<BlockPos, ItemStack>of();
+        if (bowlBaselines == null) {
+            return null;
+        }
+        var outputBowls = bowlBaselines.keySet().stream()
+                .sorted(java.util.Comparator.comparingLong(BlockPos::asLong)).toList();
         var targets = new ArrayList<TargetSlot>(match.ingredients().size() + 1 + match.proxyCosts().size());
         for (int i = 0; i < match.ingredients().size(); i++) {
             var unit = match.ingredients().get(i);
@@ -189,54 +279,307 @@ public final class OccultismRitualAdapter implements MultiblockAdapter {
                     proxyCostConsumer(match.proxyCosts())));
         }
 
-        return new DispatchPlan(List.copyOf(targets), null);
+        return new DispatchPlan(
+                List.copyOf(targets),
+                () -> {
+                    var state = new OccultismHarvestState(
+                            UUID.randomUUID(), level.dimension().location(),
+                            recipe.getId(), level.getGameTime(), expectedOutputs,
+                            preexistingEntities, outputBowls, bowlBaselines, autoHarvest);
+                    scope.setState(mainPos, harvestStateKey(level), state.encode());
+                    scope.setFlag(mainPos, dispatchedFlagKey(level));
+                    scope.clearState(mainPos, RITUAL_HARVEST_STATE);
+                    scope.clearFlag(mainPos, RITUAL_DISPATCHED_FLAG);
+                },
+                (accepted, recovered) -> recoverPartialDispatch(
+                        level, mainPos, scope, targets, match, accepted, recovered));
     }
 
     @Override
     public List<GenericStack> extractOutputs(ServerLevel level, BlockPos mainPos,
                                              AllowedOutputFilter filter,
                                              IActionSource source) {
+        return extractOutputs(level, mainPos, filter, source, AdapterPersistentScope.NOOP);
+    }
+
+    @Override
+    public List<GenericStack> extractOutputs(ServerLevel level, BlockPos mainPos,
+                                             AllowedOutputFilter filter,
+                                             IActionSource source,
+                                             AdapterPersistentScope scope) {
+        if (scope.getReturnMode() != ReturnMode.AUTO) {
+            return List.of();
+        }
         var be = level.getBlockEntity(mainPos);
         if (be == null || !recognizesMain(level, mainPos, be) || !OccultismReflection.isIdle(be)) {
             return List.of();
         }
 
-        for (int y = 1; y <= 3; y++) {
-            var bowlPos = mainPos.above(y);
+        var stateKey = harvestStateKey(level);
+        var encoded = scope.getState(mainPos, stateKey);
+        var legacyState = scope.getState(mainPos, RITUAL_HARVEST_STATE);
+        if (encoded == null || encoded.isBlank()) {
+            if ((legacyState != null && !legacyState.isBlank())
+                    || scope.hasFlag(mainPos, dispatchedFlagKey(level))
+                    || scope.hasFlag(mainPos, RITUAL_DISPATCHED_FLAG)) {
+                LOG.warn("Retaining missing or legacy Occultism dispatch state instead of extracting "
+                                + "unowned outputs: dimension={} pos={}",
+                        level.dimension().location(), mainPos);
+            }
+            return List.of();
+        }
+
+        var state = OccultismHarvestState.decode(encoded, level.dimension().location());
+        if (state == null) {
+            LOG.warn("Retaining unreadable Occultism dispatch state instead of extracting "
+                            + "unowned outputs: dimension={} pos={}",
+                    level.dimension().location(), mainPos);
+            return List.of();
+        }
+        if ((legacyState != null && !legacyState.isBlank())
+                || scope.hasFlag(mainPos, RITUAL_DISPATCHED_FLAG)) {
+            return List.of();
+        }
+        logStaleState(level, mainPos, state);
+        if (!state.autoHarvest() || state.complete()) {
+            clearHarvestState(level, mainPos, scope);
+            return List.of();
+        }
+
+        var outputs = new ArrayList<GenericStack>();
+        for (var bowlPos : state.outputBowls()) {
             if (!level.isLoaded(bowlPos)) {
                 continue;
             }
-
             var bowlBe = level.getBlockEntity(bowlPos);
             if (bowlBe == null
                     || !OccultismReflection.isSacrificialBowl(bowlBe)
                     || !isUpsideDownBowl(bowlBe.getBlockState())) {
                 continue;
             }
-
             var handler = OccultismReflection.itemHandler(bowlBe);
             if (handler == null || handler.getSlots() <= 0) {
                 continue;
             }
-
-            var stack = handler.getStackInSlot(0);
-            if (stack.isEmpty()) {
+            var current = handler.getStackInSlot(0).copy();
+            int claimable = state.claimableFromBowl(bowlPos, current);
+            if (claimable <= 0) {
                 continue;
             }
-
-            var key = AEItemKey.of(stack);
-            if (!allowsAutoReturn(level, mainPos, filter, key)) {
+            var simulated = handler.extractItem(0, claimable, true);
+            if (simulated.isEmpty() || !ItemStack.isSameItemSameTags(current, simulated)) {
                 continue;
             }
-
-            var extracted = handler.extractItem(0, stack.getCount(), false);
-            if (extracted.isEmpty()) {
+            int expectedCount = Math.min(simulated.getCount(), claimable);
+            var extracted = handler.extractItem(0, expectedCount, false);
+            if (extracted.isEmpty()
+                    || extracted.getCount() != expectedCount
+                    || !ItemStack.isSameItemSameTags(current, extracted)) {
+                if (!extracted.isEmpty()) {
+                    var remainder = handler.insertItem(0, extracted, false);
+                    if (!remainder.isEmpty()) {
+                        LOG.error("Could not restore unexpected item extracted from an Occultism output bowl: "
+                                        + "dimension={} pos={} remainder={}",
+                                level.dimension().location(), bowlPos, remainder);
+                    }
+                }
                 continue;
             }
-            return List.of(new GenericStack(AEItemKey.of(extracted), extracted.getCount()));
+            outputs.add(new GenericStack(AEItemKey.of(extracted), extracted.getCount()));
+            state = state.consume(extracted, extracted.getCount());
+            scope.setState(mainPos, stateKey, state.encode());
         }
 
-        return List.of();
+        for (var entity : level.getEntitiesOfClass(ItemEntity.class, ritualOutputAabb(mainPos))) {
+            if (!entity.isAlive()) {
+                continue;
+            }
+            var current = entity.getItem();
+            int attributable = OccultismHarvestState.attributableCount(current.getCount(),
+                    state.preexistingEntityCounts().getOrDefault(entity.getUUID(), 0));
+            int claimable = state.claimable(current, attributable);
+            if (claimable <= 0) {
+                continue;
+            }
+            var extracted = current.copy();
+            extracted.setCount(claimable);
+            if (claimable == current.getCount()) {
+                entity.discard();
+            } else {
+                var remainder = current.copy();
+                remainder.shrink(claimable);
+                entity.setItem(remainder);
+            }
+            outputs.add(new GenericStack(AEItemKey.of(extracted), claimable));
+            state = state.consume(extracted, claimable);
+            scope.setState(mainPos, stateKey, state.encode());
+        }
+
+        if (state.complete()) {
+            clearHarvestState(level, mainPos, scope);
+        }
+        return List.copyOf(outputs);
+    }
+
+    @Nullable
+    private static List<ItemStack> patternItemOutputs(IPatternDetails pattern) {
+        var outputs = new ArrayList<ItemStack>();
+        for (var output : pattern.getOutputs()) {
+            if (!(output.what() instanceof AEItemKey key)) {
+                continue;
+            }
+            if (output.amount() <= 0 || output.amount() > Integer.MAX_VALUE) {
+                return null;
+            }
+            outputs.add(key.toStack((int) output.amount()));
+        }
+        return List.copyOf(outputs);
+    }
+
+    private static Map<UUID, Integer> captureEntityCounts(ServerLevel level, AABB bounds,
+                                                           List<ItemStack> expectedOutputs) {
+        var counts = new java.util.HashMap<UUID, Integer>();
+        for (var entity : level.getEntitiesOfClass(ItemEntity.class, bounds)) {
+            var current = entity.getItem();
+            if (entity.isAlive() && containsSameStack(expectedOutputs, current)) {
+                counts.put(entity.getUUID(), current.getCount());
+            }
+        }
+        return Map.copyOf(counts);
+    }
+
+    @Nullable
+    private static Map<BlockPos, ItemStack> captureOutputBowls(ServerLevel level, BlockPos mainPos) {
+        var bowls = new java.util.HashMap<BlockPos, ItemStack>();
+        for (int y = 1; y <= 3; y++) {
+            var bowlPos = mainPos.above(y);
+            if (!level.isLoaded(bowlPos)) {
+                return null;
+            }
+            var bowlBe = level.getBlockEntity(bowlPos);
+            if (bowlBe != null
+                    && OccultismReflection.isSacrificialBowl(bowlBe)
+                    && isUpsideDownBowl(bowlBe.getBlockState())) {
+                var handler = OccultismReflection.itemHandler(bowlBe);
+                if (handler == null || handler.getSlots() <= 0) {
+                    return null;
+                }
+                bowls.put(bowlPos.immutable(), handler.getStackInSlot(0).copy());
+            }
+        }
+        return Map.copyOf(bowls);
+    }
+
+    private static boolean containsSameStack(List<ItemStack> expected, ItemStack candidate) {
+        for (var stack : expected) {
+            if (ItemStack.isSameItemSameTags(stack, candidate)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String harvestStateKey(ServerLevel level) {
+        return RITUAL_HARVEST_STATE + "@" + level.dimension().location();
+    }
+
+    private static String dispatchedFlagKey(ServerLevel level) {
+        return RITUAL_DISPATCHED_FLAG + "@" + level.dimension().location();
+    }
+
+    private static void logStaleState(ServerLevel level, BlockPos mainPos,
+                                      OccultismHarvestState state) {
+        long age = level.getGameTime() - state.createdTick();
+        if (age < 0 || age <= STALE_STATE_AGE) {
+            return;
+        }
+        var key = level.dimension().location() + "@" + mainPos.asLong()
+                + "@" + state.dispatchId();
+        if (STALE_STATE_LOGGED.add(key)) {
+            LOG.warn("Retaining stale Occultism dispatch state instead of allowing overwrite: "
+                            + "dimension={} pos={} recipe={} createdTick={} age={}",
+                    level.dimension().location(), mainPos, state.recipeId(),
+                    state.createdTick(), age);
+        }
+    }
+
+    private static void clearHarvestState(ServerLevel level, BlockPos mainPos,
+                                          AdapterPersistentScope scope) {
+        scope.clearState(mainPos, harvestStateKey(level));
+        scope.clearState(mainPos, RITUAL_HARVEST_STATE);
+        scope.clearFlag(mainPos, dispatchedFlagKey(level));
+        scope.clearFlag(mainPos, RITUAL_DISPATCHED_FLAG);
+        STALE_STATE_LOGGED.removeIf(key -> key.startsWith(
+                level.dimension().location() + "@" + mainPos.asLong() + "@"));
+    }
+
+    private static void recoverPartialDispatch(ServerLevel level, BlockPos mainPos,
+                                               AdapterPersistentScope scope,
+                                               List<TargetSlot> targets, InputMatch match,
+                                               List<AcceptedInsertion> acceptedInsertions,
+                                               Consumer<GenericStack> recovered) {
+        var goldenBowl = level.getBlockEntity(mainPos);
+        if (goldenBowl == null || !OccultismReflection.isGoldenBowl(goldenBowl)
+                || !OccultismReflection.isIdle(goldenBowl)) {
+            return;
+        }
+        int recoveredCount = 0;
+        for (var accepted : acceptedInsertions) {
+            int targetIndex = targets.indexOf(accepted.target());
+            if (targetIndex < 0) {
+                continue;
+            }
+            GenericStack stack = null;
+            if (targetIndex < match.ingredients().size()) {
+                var bowlBe = level.getBlockEntity(targets.get(targetIndex).pos());
+                IItemHandler handler = bowlBe == null ? null : OccultismReflection.itemHandler(bowlBe);
+                stack = recoverExactInsertion(handler, accepted.stack());
+            } else if (targetIndex == match.ingredients().size()) {
+                stack = recoverExactInsertion(OccultismReflection.itemHandler(goldenBowl),
+                        accepted.stack());
+            } else {
+                stack = accepted.stack();
+            }
+            if (stack != null) {
+                recovered.accept(stack);
+                if (stack.amount() == accepted.stack().amount()) {
+                    recoveredCount++;
+                }
+            }
+        }
+        if (recoveredCount == acceptedInsertions.size()) {
+            clearHarvestState(level, mainPos, scope);
+        }
+    }
+
+    @Nullable
+    private static GenericStack recoverExactInsertion(@Nullable IItemHandler handler,
+                                                       GenericStack accepted) {
+        if (handler == null || handler.getSlots() <= 0
+                || !(accepted.what() instanceof AEItemKey key)
+                || accepted.amount() <= 0 || accepted.amount() > Integer.MAX_VALUE) {
+            return null;
+        }
+        var current = handler.getStackInSlot(0);
+        if (current.isEmpty() || !key.equals(AEItemKey.of(current))) {
+            return null;
+        }
+        int amount = (int) Math.min(accepted.amount(), current.getCount());
+        var extracted = handler.extractItem(0, amount, false);
+        if (extracted.isEmpty() || !key.equals(AEItemKey.of(extracted))) {
+            return null;
+        }
+        return new GenericStack(key, extracted.getCount());
+    }
+
+    private static AABB ritualOutputAabb(BlockPos pos) {
+        return new AABB(
+                pos.getX() - 1.5,
+                pos.getY() - 0.5,
+                pos.getZ() - 1.5,
+                pos.getX() + 2.5,
+                pos.getY() + 3.5,
+                pos.getZ() + 2.5);
     }
 
     /**
@@ -279,24 +622,28 @@ public final class OccultismRitualAdapter implements MultiblockAdapter {
         int missingApi = 0;
         int inputMismatch = 0;
         int mismatchLogged = 0;
-        for (var holder : recipes(level)) {
+        for (var recipe : recipes(level)) {
             scanned++;
-            var recipe = holder;
-            if (!OccultismReflection.hasValidPentacle(recipe, level, mainPos)) {
-                pentacleFail++;
-                continue;
-            }
             var activation = OccultismReflection.getActivationItem(recipe);
             var ingredients = OccultismReflection.getIngredients(recipe);
             if (activation == null || ingredients == null) {
                 missingApi++;
+                if (mismatchLogged < 5 && LOG.isDebugEnabled()) {
+                    LOG.debug("findCandidate: recipe {} skipped (activationResolved={}, ingredientsResolved={})",
+                            recipe.getId(), activation != null, ingredients != null);
+                    mismatchLogged++;
+                }
                 continue;
             }
-            if (matchInputsToRecipe(patternUnits, recipe) == null) {
+            if (matchInputsToRecipe(patternUnits, recipe, activation, ingredients) == null) {
                 inputMismatch++;
-                if (mismatchLogged < 5) {
+                if (mismatchLogged < 5 && LOG.isDebugEnabled()) {
+                    // Guard the debug branch: ingredientFirstItems / ingredientListItems
+                    // call BuiltInRegistries.ITEM.getKey per ItemStack (allocates a
+                    // ResourceLocation and validates the path), which is wasteful
+                    // when debug logging is off.
                     LOG.debug("findCandidate: recipe {} mismatch (activation={}, ingredients={}, requiresSacrifice={}, requiresItemUse={}, itemToUse={})",
-                            holder.getId(),
+                            recipe.getId(),
                             ingredientFirstItems(activation),
                             ingredientListItems(ingredients),
                             OccultismReflection.requiresSacrifice(recipe),
@@ -306,12 +653,29 @@ public final class OccultismRitualAdapter implements MultiblockAdapter {
                 }
                 continue;
             }
-            LOG.debug("findCandidate: matched recipe {} at {} ({} pattern units)",
-                    holder.getId(), mainPos, patternUnits.size());
+            // Pentacle last: it is an in-world structure check, so only the
+            // input-matched recipe needs it. (Checking it first rejected all 70
+            // recipes whenever the player's built pentacle belonged to a
+            // different ritual, and hid input mismatches behind pentacleFail.)
+            if (!OccultismReflection.hasValidPentacle(recipe, level, mainPos)) {
+                pentacleFail++;
+                if (mismatchLogged < 5 && LOG.isDebugEnabled()) {
+                    LOG.debug("findCandidate: recipe {} input-matched but pentacle invalid at {}",
+                            recipe.getId(), mainPos);
+                    mismatchLogged++;
+                }
+                continue;
+            }
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("findCandidate: matched recipe {} at {} ({} pattern units)",
+                        recipe.getId(), mainPos, patternUnits.size());
+            }
             return new OccultismBindHandle(recipe);
         }
-        LOG.debug("findCandidate: no match at {} (scanned={}, pentacleFail={}, missingApi={}, inputMismatch={}, patternUnits={})",
-                mainPos, scanned, pentacleFail, missingApi, inputMismatch, patternUnits.size());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("findCandidate: no match at {} (scanned={}, pentacleFail={}, missingApi={}, inputMismatch={}, patternUnits={})",
+                    mainPos, scanned, pentacleFail, missingApi, inputMismatch, patternUnits.size());
+        }
         return null;
     }
 
@@ -357,7 +721,13 @@ public final class OccultismRitualAdapter implements MultiblockAdapter {
         if (activation == null || ingredients == null) {
             return null;
         }
+        return matchInputsToRecipe(units, recipe, activation, ingredients);
+    }
 
+    @Nullable
+    private static InputMatch matchInputsToRecipe(List<PlannedUnit> units, Object recipe,
+                                                  Ingredient activation,
+                                                  List<Ingredient> ingredients) {
         for (int i = 0; i < units.size(); i++) {
             if (!activation.test(units.get(i).stack())) {
                 continue;
@@ -400,13 +770,20 @@ public final class OccultismRitualAdapter implements MultiblockAdapter {
         var proxyCosts = new ArrayList<PlannedUnit>(2);
         var itemToUse = OccultismReflection.getItemToUse(recipe);
         boolean requiresSacrifice = OccultismReflection.requiresSacrifice(recipe);
+        var sacrificeTag = requiresSacrifice
+                ? OccultismReflection.getEntityToSacrifice(recipe)
+                : null;
+        if (requiresSacrifice && sacrificeTag == null) {
+            return null;
+        }
         boolean requiresItemUse = itemToUse != null && OccultismReflection.requiresItemUse(recipe);
         for (int i = 0; i < units.size(); i++) {
             if (used[i]) {
                 continue;
             }
             var unit = units.get(i);
-            if (!completesSacrifice && requiresSacrifice && isSpawnEgg(unit.stack())) {
+            if (!completesSacrifice && requiresSacrifice
+                    && isMatchingSacrificeEgg(unit.stack(), sacrificeTag)) {
                 completesSacrifice = true;
                 used[i] = true;
                 proxyCosts.add(unit);
@@ -612,28 +989,34 @@ public final class OccultismRitualAdapter implements MultiblockAdapter {
                 && state.getValue(BlockStateProperties.FACING) == Direction.DOWN;
     }
 
-    private static boolean isSpawnEgg(ItemStack stack) {
-        return stack.getItem() instanceof SpawnEggItem;
+    private static boolean isMatchingSacrificeEgg(
+            ItemStack stack, @Nullable TagKey<EntityType<?>> sacrificeTag) {
+        if (!(stack.getItem() instanceof SpawnEggItem egg) || sacrificeTag == null) {
+            return false;
+        }
+        try {
+            return egg.getType(stack.getTag()).is(sacrificeTag);
+        } catch (RuntimeException | LinkageError ignored) {
+            return false;
+        }
     }
 
     private static List<Recipe<?>> recipes(ServerLevel level) {
-        return BuiltInRegistries.RECIPE_TYPE.getOptional(RITUAL_RECIPE_TYPE)
-                .map(type -> recipesForType(level, type))
-                .orElse(List.of());
-    }
-
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private static List<Recipe<?>> recipesForType(ServerLevel level, RecipeType<?> type) {
+        var type = AdapterRecipeTypes.find(RITUAL_RECIPE_TYPE);
+        if (type == null) {
+            return List.of();
+        }
         return (List<Recipe<?>>) (List<?>) level.getRecipeManager()
                 .getAllRecipesFor((RecipeType) type);
     }
+
 
     private static boolean isOccultismLoaded() {
         return ModList.get().isLoaded(MOD_ID);
     }
 
     private static ResourceLocation occultismId(String path) {
-        return new ResourceLocation(MOD_ID, path);
+        return ResourceLocation.fromNamespaceAndPath(MOD_ID, path);
     }
 
     private record PlannedUnit(AEItemKey key) {
@@ -683,9 +1066,9 @@ public final class OccultismRitualAdapter implements MultiblockAdapter {
         private static volatile @Nullable Method getCurrentRitualRecipeMethod;
         private static volatile @Nullable Field itemStackHandlerField;
         private static volatile @Nullable Method getActivationItemMethod;
-        private static volatile @Nullable Method getIngredientsMethod;
         private static volatile @Nullable Method getRitualTypeMethod;
         private static volatile @Nullable Method requiresSacrificeMethod;
+        private static volatile @Nullable Method getEntityToSacrificeMethod;
         private static volatile @Nullable Method requiresItemUseMethod;
         private static volatile @Nullable Method getItemToUseMethod;
         private static volatile @Nullable Method getPentacleMethod;
@@ -726,6 +1109,23 @@ public final class OccultismRitualAdapter implements MultiblockAdapter {
                 return value instanceof Boolean b && b;
             } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
                 return false;
+            }
+        }
+
+        @Nullable
+        @SuppressWarnings("unchecked")
+        static TagKey<EntityType<?>> getEntityToSacrifice(Object recipe) {
+            ensureLookup();
+            if (getEntityToSacrificeMethod == null) {
+                return null;
+            }
+            try {
+                var value = getEntityToSacrificeMethod.invoke(recipe);
+                return value instanceof TagKey<?> tag
+                        ? (TagKey<EntityType<?>>) tag
+                        : null;
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+                return null;
             }
         }
 
@@ -813,25 +1213,24 @@ public final class OccultismRitualAdapter implements MultiblockAdapter {
 
         @Nullable
         static List<Ingredient> getIngredients(Object recipe) {
-            ensureLookup();
-            if (getIngredientsMethod == null) {
+            // Direct vanilla-interface dispatch instead of reflection:
+            // getIngredients() overrides a net.minecraft method, so in a
+            // production (reobfuscated) jar the implementing method is
+            // renamed to its SRG name and lookups by the mojmap name fail
+            // even though the method exists. Calling through the erased
+            // Recipe interface is compile-time-reobfuscated on our side and
+            // therefore always resolves.
+            if (!(recipe instanceof Recipe<?> vanillaRecipe)) {
                 return null;
             }
             try {
-                var value = getIngredientsMethod.invoke(recipe);
-                if (!(value instanceof List<?> list)) {
-                    return null;
-                }
-
-                var result = new ArrayList<Ingredient>(list.size());
-                for (var item : list) {
-                    if (!(item instanceof Ingredient ingredient)) {
-                        return null;
-                    }
+                var value = vanillaRecipe.getIngredients();
+                var result = new ArrayList<Ingredient>(value.size());
+                for (Ingredient ingredient : value) {
                     result.add(ingredient);
                 }
                 return List.copyOf(result);
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+            } catch (RuntimeException | LinkageError ignored) {
                 return null;
             }
         }
@@ -924,9 +1323,9 @@ public final class OccultismRitualAdapter implements MultiblockAdapter {
             }
             if (ritualRecipeClass != null) {
                 getActivationItemMethod = tryMethod(ritualRecipeClass, "getActivationItem");
-                getIngredientsMethod = tryMethod(ritualRecipeClass, "getIngredients");
                 getRitualTypeMethod = tryMethod(ritualRecipeClass, "getRitualType");
                 requiresSacrificeMethod = tryMethod(ritualRecipeClass, "requiresSacrifice");
+                getEntityToSacrificeMethod = tryMethod(ritualRecipeClass, "getEntityToSacrifice");
                 requiresItemUseMethod = tryMethod(ritualRecipeClass, "requiresItemUse");
                 getItemToUseMethod = tryMethod(ritualRecipeClass, "getItemToUse");
                 getPentacleMethod = tryMethod(ritualRecipeClass, "getPentacle");

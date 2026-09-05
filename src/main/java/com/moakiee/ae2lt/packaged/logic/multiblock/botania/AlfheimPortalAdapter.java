@@ -1,7 +1,6 @@
 package com.moakiee.ae2lt.packaged.logic.multiblock.botania;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 
@@ -10,7 +9,6 @@ import org.jetbrains.annotations.Nullable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -159,8 +157,7 @@ public final class AlfheimPortalAdapter implements VirtualCraftingAdapter {
     }
 
     private static boolean consumeIngredientsStrict(List<Ingredient> ingredients, KeyCounter[] inputs) {
-        var available = new LinkedHashMap<Item, Long>();
-        var keysByItem = new HashMap<Item, AEItemKey>();
+        var available = new LinkedHashMap<AEItemKey, Long>();
         for (var counter : inputs) {
             for (var entry : counter) {
                 if (!(entry.getKey() instanceof AEItemKey itemKey)) {
@@ -170,9 +167,14 @@ public final class AlfheimPortalAdapter implements VirtualCraftingAdapter {
                 if (amt <= 0) {
                     continue;
                 }
-                var item = itemKey.getItem();
-                available.merge(item, amt, Long::sum);
-                keysByItem.putIfAbsent(item, itemKey);
+                long previous = available.getOrDefault(itemKey, 0L);
+                long merged;
+                try {
+                    merged = Math.addExact(previous, amt);
+                } catch (ArithmeticException overflow) {
+                    return false;
+                }
+                available.put(itemKey, merged);
             }
         }
         if (available.isEmpty()) {
@@ -185,14 +187,7 @@ public final class AlfheimPortalAdapter implements VirtualCraftingAdapter {
             boolean matched = false;
             for (var it = available.entrySet().iterator(); it.hasNext(); ) {
                 var entry = it.next();
-                if (entry.getValue() < 1L) {
-                    continue;
-                }
-                var key = keysByItem.get(entry.getKey());
-                if (key == null) {
-                    continue;
-                }
-                if (!ing.test(key.toStack(1))) {
+                if (entry.getValue() < 1L || !ing.test(entry.getKey().toStack(1))) {
                     continue;
                 }
                 long remaining = entry.getValue() - 1L;
@@ -208,8 +203,8 @@ public final class AlfheimPortalAdapter implements VirtualCraftingAdapter {
                 return false;
             }
         }
-        for (var v : available.values()) {
-            if (v > 0) {
+        for (var amount : available.values()) {
+            if (amount > 0) {
                 return false;
             }
         }

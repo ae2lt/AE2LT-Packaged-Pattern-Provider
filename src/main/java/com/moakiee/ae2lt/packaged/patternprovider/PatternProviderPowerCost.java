@@ -40,7 +40,10 @@ public final class PatternProviderPowerCost {
      * to match Forge 1.20.1.
      */
     private static long ceilDiv(long dividend, long divisor) {
-        return (dividend + divisor - 1) / divisor;
+        if (dividend < 0 || divisor <= 0) {
+            throw new IllegalArgumentException("ceilDiv requires a non-negative dividend and positive divisor");
+        }
+        return dividend / divisor + (dividend % divisor == 0 ? 0 : 1);
     }
 
     public static double totalCost(KeyCounter[] inputs) {

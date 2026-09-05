@@ -1,7 +1,6 @@
 package com.moakiee.ae2lt.packaged.logic.multiblock.botania;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 
@@ -11,7 +10,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.item.ItemEntity;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
@@ -236,16 +234,22 @@ public final class TerraPlateAdapter implements MultiblockAdapter {
 
     private java.util.function.BiFunction<GenericStack, Actionable, Long> terraInserter(
             ServerLevel level, Vec3 spawnPos, ItemStack stack) {
-        return (target, actionable) -> {
-            if (actionable.isSimulate()) {
-                return target.amount();
-            }
+        return terraInserter(() -> {
             var entity = new ItemEntity(level, spawnPos.x, spawnPos.y, spawnPos.z, stack.copy());
             entity.setDeltaMovement(0, 0, 0);
             entity.setPickUpDelay(20);
             entity.getPersistentData().putBoolean(INPUT_MARKER, true);
-            level.addFreshEntity(entity);
-            return target.amount();
+            return level.addFreshEntity(entity);
+        });
+    }
+
+    static java.util.function.BiFunction<GenericStack, Actionable, Long> terraInserter(
+            java.util.function.BooleanSupplier spawnInput) {
+        return (target, actionable) -> {
+            if (actionable.isSimulate()) {
+                return target.amount();
+            }
+            return spawnInput.getAsBoolean() ? target.amount() : 0L;
         };
     }
 
@@ -257,8 +261,7 @@ public final class TerraPlateAdapter implements MultiblockAdapter {
      */
     @Nullable
     private static List<ItemStack> pickKeyCounterStacks(List<Ingredient> ingredients, KeyCounter[] inputs) {
-        var available = new LinkedHashMap<Item, Long>();
-        var keysByItem = new HashMap<Item, AEItemKey>();
+        var available = new LinkedHashMap<AEItemKey, Long>();
         for (var counter : inputs) {
             for (var entry : counter) {
                 if (!(entry.getKey() instanceof AEItemKey itemKey)) {
@@ -268,9 +271,14 @@ public final class TerraPlateAdapter implements MultiblockAdapter {
                 if (amt <= 0) {
                     continue;
                 }
-                var item = itemKey.getItem();
-                available.merge(item, amt, Long::sum);
-                keysByItem.putIfAbsent(item, itemKey);
+                long previous = available.getOrDefault(itemKey, 0L);
+                long merged;
+                try {
+                    merged = Math.addExact(previous, amt);
+                } catch (ArithmeticException overflow) {
+                    return null;
+                }
+                available.put(itemKey, merged);
             }
         }
         if (available.isEmpty()) {
@@ -281,37 +289,27 @@ public final class TerraPlateAdapter implements MultiblockAdapter {
             if (ing.isEmpty()) {
                 continue;
             }
-            ItemStack picked = null;
-            Item chosenItem = null;
+            AEItemKey chosenKey = null;
             for (var entry : available.entrySet()) {
-                if (entry.getValue() < 1L) {
+                if (entry.getValue() < 1L || !ing.test(entry.getKey().toStack(1))) {
                     continue;
                 }
-                var key = keysByItem.get(entry.getKey());
-                if (key == null) {
-                    continue;
-                }
-                var candidate = key.toStack(1);
-                if (!ing.test(candidate)) {
-                    continue;
-                }
-                picked = candidate;
-                chosenItem = entry.getKey();
+                chosenKey = entry.getKey();
                 break;
             }
-            if (picked == null) {
+            if (chosenKey == null) {
                 return null;
             }
-            long remaining = available.get(chosenItem) - 1L;
+            long remaining = available.get(chosenKey) - 1L;
             if (remaining == 0) {
-                available.remove(chosenItem);
+                available.remove(chosenKey);
             } else {
-                available.put(chosenItem, remaining);
+                available.put(chosenKey, remaining);
             }
-            stacks.add(picked);
+            stacks.add(chosenKey.toStack(1));
         }
-        for (var v : available.values()) {
-            if (v > 0) {
+        for (var amount : available.values()) {
+            if (amount > 0) {
                 return null;
             }
         }

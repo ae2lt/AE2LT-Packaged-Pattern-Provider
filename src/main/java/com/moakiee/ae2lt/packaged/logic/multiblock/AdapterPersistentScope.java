@@ -2,6 +2,8 @@ package com.moakiee.ae2lt.packaged.logic.multiblock;
 
 import net.minecraft.core.BlockPos;
 
+import com.moakiee.ae2lt.packaged.patternprovider.StablePatternProviderBlockEntity.ReturnMode;
+
 /**
  * Per-provider persistent flag store handed to {@link MultiblockAdapter}s.
  *
@@ -41,6 +43,14 @@ public interface AdapterPersistentScope {
         }
     };
 
+    /**
+     * Current output-return policy. Legacy callers retain automatic harvesting;
+     * provider hosts override this with their existing return-mode accessor.
+     */
+    default ReturnMode getReturnMode() {
+        return ReturnMode.AUTO;
+    }
+
     /** Marks {@code (targetPos, key)} as true. Idempotent. */
     void setFlag(BlockPos targetPos, String key);
 
@@ -49,4 +59,21 @@ public interface AdapterPersistentScope {
 
     /** Marks {@code (targetPos, key)} as false. Idempotent. */
     void clearFlag(BlockPos targetPos, String key);
+
+    /** Stores a small adapter-owned value. Implementations may persist it across restarts. */
+    default void setState(BlockPos targetPos, String key, String value) {
+    }
+
+    /** Returns the stored adapter-owned value, or {@code null} when none exists. */
+    default String getState(BlockPos targetPos, String key) {
+        return null;
+    }
+
+    /** Removes one adapter-owned value. Idempotent. */
+    default void clearState(BlockPos targetPos, String key) {
+    }
+
+    /** Removes all adapter flags and values associated with a target position. */
+    default void clearFlagsForTarget(BlockPos targetPos) {
+    }
 }

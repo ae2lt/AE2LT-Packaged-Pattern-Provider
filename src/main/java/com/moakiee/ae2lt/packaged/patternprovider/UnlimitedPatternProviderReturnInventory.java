@@ -36,7 +36,13 @@ public final class UnlimitedPatternProviderReturnInventory
         for (int i = 0; i < size(); i++) {
             if (what.equals(getKey(i))) {
                 if (mode == Actionable.MODULATE) {
-                    setStack(i, new GenericStack(what, getAmount(i) + amount));
+                    long merged;
+                    try {
+                        merged = Math.addExact(getAmount(i), amount);
+                    } catch (ArithmeticException overflow) {
+                        merged = Long.MAX_VALUE;
+                    }
+                    setStack(i, new GenericStack(what, merged));
                 }
                 return amount;
             }

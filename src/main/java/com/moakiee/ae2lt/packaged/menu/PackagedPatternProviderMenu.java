@@ -28,7 +28,7 @@ public class PackagedPatternProviderMenu extends PatternProviderMenu
             PackagedMenuTypeBuilder.buildUnregistered(
                     MenuTypeBuilder.create(
                             PackagedPatternProviderMenu::new, PatternProviderLogicHost.class),
-                    new ResourceLocation(
+                    ResourceLocation.fromNamespaceAndPath(
                             AE2LTPackagedProvider.MODID, "packaged_pattern_provider"));
 
     @GuiSync(22000)

@@ -26,9 +26,15 @@ final class MalumAdapterSupport {
 
     @Nullable
     static List<MalumRecipeInputMatcher.Input<AEItemKey>> aggregateInputs(KeyCounter[] inputs, long maxAmount) {
+        if (inputs == null || maxAmount <= 0) {
+            return null;
+        }
         Map<AEItemKey, Long> amounts = new LinkedHashMap<>();
         long total = 0;
         for (var counter : inputs) {
+            if (counter == null) {
+                continue;
+            }
             for (var entry : counter) {
                 if (!(entry.getKey() instanceof AEItemKey itemKey)) {
                     return null;
@@ -39,11 +45,22 @@ final class MalumAdapterSupport {
                     continue;
                 }
 
-                total += amount;
+                try {
+                    total = Math.addExact(total, amount);
+                } catch (ArithmeticException overflow) {
+                    return null;
+                }
                 if (total > maxAmount) {
                     return null;
                 }
-                amounts.merge(itemKey, amount, Long::sum);
+                var previous = amounts.get(itemKey);
+                try {
+                    amounts.put(itemKey, previous == null
+                            ? amount
+                            : Math.addExact(previous, amount));
+                } catch (ArithmeticException overflow) {
+                    return null;
+                }
             }
         }
 
@@ -126,6 +143,48 @@ final class MalumAdapterSupport {
 
     static ItemStack toItemStack(MalumRecipeInputMatcher.Assignment<AEItemKey> assignment) {
         return assignment.value().toStack((int) assignment.amount());
+    }
+
+    @Nullable
+    static GenericStack recoverExactInsertion(
+            IItemHandler inventory,
+            int slot,
+            MalumRecipeInputMatcher.Assignment<AEItemKey> assignment) {
+        return recoverExactInsertion(
+                inventory,
+                slot,
+                new GenericStack(assignment.value(), assignment.amount()));
+    }
+
+    @Nullable
+    static GenericStack recoverExactInsertion(
+            IItemHandler inventory,
+            int slot,
+            GenericStack accepted) {
+        if (slot < 0 || slot >= inventory.getSlots()
+                || !(accepted.what() instanceof AEItemKey expectedKey)
+                || accepted.amount() <= 0
+                || accepted.amount() > Integer.MAX_VALUE) {
+            return null;
+        }
+        var current = inventory.getStackInSlot(slot);
+        var expected = expectedKey.toStack((int) accepted.amount());
+        if (current.isEmpty()
+                || current.getCount() > expected.getCount()
+                || !ItemStack.isSameItemSameTags(current, expected)) {
+            return null;
+        }
+        var simulated = inventory.extractItem(slot, current.getCount(), true);
+        if (simulated.isEmpty()
+                || simulated.getCount() != current.getCount()
+                || !ItemStack.isSameItemSameTags(simulated, current)) {
+            return null;
+        }
+        var extracted = inventory.extractItem(slot, current.getCount(), false);
+        if (extracted.isEmpty() || !ItemStack.isSameItemSameTags(extracted, current)) {
+            return null;
+        }
+        return new GenericStack(AEItemKey.of(extracted), extracted.getCount());
     }
 
 }

@@ -8,11 +8,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.BiFunction;
+import java.util.function.Consumer;
 
 import org.jetbrains.annotations.Nullable;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
@@ -33,7 +33,11 @@ import appeng.api.stacks.GenericStack;
 import appeng.api.stacks.KeyCounter;
 
 import com.moakiee.ae2lt.packaged.patternprovider.AllowedOutputFilter;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AcceptedInsertion;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterRecipeTypes;
+import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchCommitException;
 import com.moakiee.ae2lt.packaged.logic.multiblock.DispatchPlan;
+import com.moakiee.ae2lt.packaged.logic.multiblock.AdapterBlocks;
 import com.moakiee.ae2lt.packaged.logic.multiblock.InsertionStrategy;
 import com.moakiee.ae2lt.packaged.logic.multiblock.MultiblockAdapter;
 import com.moakiee.ae2lt.packaged.logic.multiblock.TargetSlot;
@@ -80,6 +84,7 @@ public final class AwakeningAltarAdapter implements MultiblockAdapter {
     public boolean recognizesMain(ServerLevel level, BlockPos pos, BlockEntity be) {
         return be != null
                 && isMaLoaded()
+                && AwakeningReflection.isReady()
                 && blockId(be.getBlockState()).equals(ALTAR_BLOCK)
                 && AwakeningReflection.isAwakeningAltar(be);
     }
@@ -99,16 +104,16 @@ public final class AwakeningAltarAdapter implements MultiblockAdapter {
         if (!hasSingleItemOutput(pattern)) {
             return null;
         }
-        var recipe = findCandidateRecipe(level, pattern);
-        if (recipe == null) {
+        var recipes = findCandidateRecipes(level, pattern);
+        if (recipes.isEmpty()) {
             return null;
         }
-        return new BindingResult(new AwakeningBindHandle(recipe), BindingMode.REAL);
+        return new BindingResult(new AwakeningBindHandle(recipes), BindingMode.REAL);
     }
 
     @Override
     public boolean canDispatch(ServerLevel level, BlockPos mainPos, Object handle) {
-        if (!(handle instanceof AwakeningBindHandle)) {
+        if (!(handle instanceof AwakeningBindHandle) || !AwakeningReflection.isReady()) {
             return false;
         }
         var be = level.getBlockEntity(mainPos);
@@ -134,7 +139,7 @@ public final class AwakeningAltarAdapter implements MultiblockAdapter {
     public DispatchPlan planWithBinding(ServerLevel level, BlockPos mainPos,
                                         IPatternDetails pattern, KeyCounter[] inputs,
                                         Object handle, IActionSource source) {
-        if (!(handle instanceof AwakeningBindHandle bind)) {
+        if (!(handle instanceof AwakeningBindHandle bind) || !AwakeningReflection.isReady()) {
             return null;
         }
         var slots = scanSubSlots(level, mainPos);
@@ -147,7 +152,8 @@ public final class AwakeningAltarAdapter implements MultiblockAdapter {
             return null;
         }
 
-        var match = assignInputsToRecipe(bind.recipe(), keyTotals);
+        var match = CandidateRecipeSelector.firstMatch(
+                bind.recipes(), recipe -> assignInputsToRecipe(recipe, keyTotals));
         if (match == null) {
             return null;
         }
@@ -179,8 +185,85 @@ public final class AwakeningAltarAdapter implements MultiblockAdapter {
                     pedestalInserter(level, pedestalPos, key)));
         }
 
-        return new DispatchPlan(List.copyOf(targets),
-                () -> AwakeningReflection.activate(level, mainPos));
+        return new DispatchPlan(
+                List.copyOf(targets),
+                () -> AwakeningReflection.activateOrThrow(level, mainPos),
+                (accepted, recovered) -> recoverUnstartedDispatch(
+                        level, mainPos, targets, accepted, recovered));
+    }
+
+    private static void recoverUnstartedDispatch(
+            ServerLevel level,
+            BlockPos mainPos,
+            List<TargetSlot> targets,
+            List<AcceptedInsertion> acceptedInsertions,
+            Consumer<GenericStack> recovered) {
+        var altar = level.getBlockEntity(mainPos);
+        if (altar == null || !AwakeningReflection.isDefinitelyInactive(altar)) {
+            return;
+        }
+        for (var accepted : acceptedInsertions) {
+            int targetIndex = targets.indexOf(accepted.target());
+            if (targetIndex < 0) {
+                continue;
+            }
+            var be = level.getBlockEntity(accepted.target().pos());
+            if (!isExpectedRecoveryTarget(be, targetIndex)) {
+                continue;
+            }
+            var stack = recoverExactInsertion(
+                    AwakeningReflection.getHandler(be), 0, accepted.stack());
+            if (stack != null) {
+                recovered.accept(stack);
+            }
+        }
+    }
+
+    private static boolean isExpectedRecoveryTarget(@Nullable BlockEntity be, int targetIndex) {
+        if (be == null) {
+            return false;
+        }
+        var id = blockId(be.getBlockState());
+        if (targetIndex == 0) {
+            return id.equals(ALTAR_BLOCK) && AwakeningReflection.isAwakeningAltar(be);
+        }
+        if (targetIndex <= 4) {
+            return id.equals(VESSEL_BLOCK) && AwakeningReflection.isEssenceVessel(be);
+        }
+        return targetIndex <= 8
+                && id.equals(PEDESTAL_BLOCK)
+                && AwakeningReflection.isAwakeningPedestal(be);
+    }
+
+    @Nullable
+    private static GenericStack recoverExactInsertion(
+            @Nullable IItemHandler inventory, int slot, GenericStack accepted) {
+        if (inventory == null
+                || slot < 0
+                || slot >= inventory.getSlots()
+                || !(accepted.what() instanceof AEItemKey expectedKey)
+                || accepted.amount() <= 0
+                || accepted.amount() > Integer.MAX_VALUE) {
+            return null;
+        }
+        var current = inventory.getStackInSlot(slot);
+        var expected = expectedKey.toStack((int) accepted.amount());
+        if (current.isEmpty()
+                || current.getCount() != expected.getCount()
+                || !ItemStack.isSameItemSameTags(current, expected)) {
+            return null;
+        }
+        var simulated = inventory.extractItem(slot, current.getCount(), true);
+        if (simulated.isEmpty()
+                || simulated.getCount() != current.getCount()
+                || !ItemStack.isSameItemSameTags(simulated, current)) {
+            return null;
+        }
+        var extracted = inventory.extractItem(slot, current.getCount(), false);
+        if (extracted.isEmpty() || !ItemStack.isSameItemSameTags(extracted, current)) {
+            return null;
+        }
+        return new GenericStack(AEItemKey.of(extracted), extracted.getCount());
     }
 
     @Override
@@ -217,57 +300,40 @@ public final class AwakeningAltarAdapter implements MultiblockAdapter {
         return List.of(new GenericStack(AEItemKey.of(extracted), extracted.getCount()));
     }
 
-    /**
-     * Bind-time recipe search: filters by pattern.outputs and structural
-     * requirements only. Caching this result lets {@code planWithBinding} skip
-     * the recipe-table sweep on every subsequent push.
-     */
-    @Nullable
-    private static Object findCandidateRecipe(ServerLevel level, IPatternDetails pattern) {
-        for (var holder : recipes(level)) {
-            var recipe = holder;
+    /** Bind-time recipe search retains every structurally valid output match. */
+    private static List<Object> findCandidateRecipes(ServerLevel level, IPatternDetails pattern) {
+        var candidates = new ArrayList<Object>();
+        for (var recipe : recipes(level)) {
             var result = resultItem(recipe, level);
             if (result == null || result.isEmpty() || !outputMatches(pattern, result)) {
                 continue;
             }
-            var altarIngredient = AwakeningReflection.getAltarIngredient(recipe);
-            var essenceStacks = AwakeningReflection.getEssences(recipe);
-            var ingredients = AwakeningReflection.getIngredients(recipe);
-            if (altarIngredient == null || essenceStacks == null || ingredients == null) {
-                continue;
-            }
-            if (essenceStacks.size() != 4 || ingredients.size() != 8) {
-                continue;
-            }
-            if (pedestalIngredients(ingredients) == null) {
-                continue;
-            }
-            return recipe;
+            candidates.add(recipe);
         }
-        return null;
+        candidates.sort(java.util.Comparator.comparing(AwakeningAltarAdapter::recipeId));
+        return List.copyOf(candidates);
     }
 
-    /**
-     * Per-push input assignment against the recipe locked in by {@link #bind}.
-     * Tries each input key as the altar item, then greedily consumes the
-     * remaining keyTotals to satisfy essence vessels + pedestal ingredients.
-     */
+    /** Per-push input assignment chooses one compatible retained recipe. */
     @Nullable
     private static RecipeMatch assignInputsToRecipe(Object recipe, Map<AEItemKey, Long> keyTotals) {
-        var altarIngredient = AwakeningReflection.getAltarIngredient(recipe);
         var essenceStacks = AwakeningReflection.getEssences(recipe);
         var ingredients = AwakeningReflection.getIngredients(recipe);
-        if (altarIngredient == null || essenceStacks == null || ingredients == null) {
+        if (essenceStacks == null || ingredients == null
+                || essenceStacks.size() != 4 || ingredients.size() != 9) {
             return null;
         }
+        var altarIngredient = ingredients.get(0);
         var pedestalIngredients = pedestalIngredients(ingredients);
-        if (pedestalIngredients == null) {
+        if (altarIngredient.isEmpty() || pedestalIngredients == null) {
             return null;
         }
 
-        for (var altarEntry : keyTotals.entrySet()) {
-            var altarKey = altarEntry.getKey();
-            if (altarEntry.getValue() < 1 || !altarIngredient.test(altarKey.toStack())) {
+        var altarKeys = new ArrayList<>(keyTotals.keySet());
+        altarKeys.sort(java.util.Comparator.comparing(AwakeningAltarAdapter::keyOrder));
+        for (var altarKey : altarKeys) {
+            if (keyTotals.getOrDefault(altarKey, 0L) < 1
+                    || !altarIngredient.test(altarKey.toStack())) {
                 continue;
             }
 
@@ -282,10 +348,7 @@ public final class AwakeningAltarAdapter implements MultiblockAdapter {
             }
 
             var pedestalKeys = consumePedestals(working, pedestalIngredients);
-            if (pedestalKeys == null) {
-                continue;
-            }
-            if (anyRemaining(working)) {
+            if (pedestalKeys == null || anyRemaining(working)) {
                 continue;
             }
 
@@ -315,32 +378,45 @@ public final class AwakeningAltarAdapter implements MultiblockAdapter {
     @Nullable
     private static List<AEItemKey> consumePedestals(Map<AEItemKey, Long> working,
                                                     List<Ingredient> ingredients) {
-        var result = new ArrayList<AEItemKey>(ingredients.size());
-        for (var ingredient : ingredients) {
-            AEItemKey matched = null;
-            for (var entry : working.entrySet()) {
-                if (entry.getValue() < 1) {
-                    continue;
-                }
-                if (ingredient.test(entry.getKey().toStack())) {
-                    matched = entry.getKey();
-                    break;
-                }
+        var units = new ArrayList<AEItemKey>();
+        var keys = new ArrayList<>(working.keySet());
+        keys.sort(java.util.Comparator.comparing(AwakeningAltarAdapter::keyOrder));
+        for (var key : keys) {
+            long count = working.getOrDefault(key, 0L);
+            for (long i = 0; i < count; i++) {
+                units.add(key);
             }
-            if (matched == null || !consume(working, matched, 1)) {
+        }
+
+        var constraints = new ArrayList<java.util.function.Predicate<AEItemKey>>(ingredients.size());
+        for (var ingredient : ingredients) {
+            if (ingredient.isEmpty()) {
                 return null;
             }
-            result.add(matched);
+            constraints.add(key -> ingredient.test(key.toStack()));
         }
-        return List.copyOf(result);
+
+        var matched = ConstraintFirstMatcher.match(units, constraints);
+        if (matched == null) {
+            return null;
+        }
+        for (var key : matched) {
+            if (!consume(working, key, 1)) {
+                return null;
+            }
+        }
+        return matched;
     }
 
     @Nullable
     private static List<Ingredient> pedestalIngredients(List<Ingredient> alternating) {
-        // AwakeningRecipe.inputs is built as [essence, ingredient, essence, ingredient, ...]
-        // The odd indexes (1,3,5,7) are the pedestal ingredients (originally recipe.inputs in JSON).
+        // AwakeningRecipe#getIngredients() is [altar, essence, pedestal, ...].
+        // The even indexes 2,4,6,8 are the four pedestal ingredients.
+        if (alternating.size() != 9) {
+            return null;
+        }
         var result = new ArrayList<Ingredient>(4);
-        for (int i = 1; i < alternating.size(); i += 2) {
+        for (int i = 2; i < alternating.size(); i += 2) {
             var ing = alternating.get(i);
             if (ing == null) {
                 return null;
@@ -543,24 +619,38 @@ public final class AwakeningAltarAdapter implements MultiblockAdapter {
         }
     }
 
+    private static String recipeId(Object recipe) {
+        if (recipe instanceof Recipe<?> r) {
+            try {
+                return r.getId().toString();
+            } catch (RuntimeException | LinkageError ignored) {
+            }
+        }
+        return recipe.getClass().getName();
+    }
+
+    private static String keyOrder(AEItemKey key) {
+        return key.getId() + "\u0000" + key;
+    }
+
     @SuppressWarnings({"rawtypes", "unchecked"})
     private static List<Recipe<?>> recipes(ServerLevel level) {
-        return BuiltInRegistries.RECIPE_TYPE.getOptional(RECIPE_TYPE_ID)
-                .map(type -> (List<Recipe<?>>) (List<?>) level.getRecipeManager()
-                        .getAllRecipesFor((RecipeType) type))
-                .orElse(List.of());
+        var type = AdapterRecipeTypes.find(RECIPE_TYPE_ID);
+        if (type == null) {
+            return List.of();
+        }
+        return (List<Recipe<?>>) (List<?>) level.getRecipeManager()
+                .getAllRecipesFor((RecipeType) type);
     }
 
     private static boolean isMaLoaded() {
         return ModList.get().isLoaded(MOD_ID);
     }
 
-    private static ResourceLocation blockId(BlockState state) {
-        return BuiltInRegistries.BLOCK.getKey(state.getBlock());
-    }
+    private static ResourceLocation blockId(BlockState state) { return AdapterBlocks.idOf(state); }
 
     private static ResourceLocation maId(String path) {
-        return new ResourceLocation(MOD_ID, path);
+        return ResourceLocation.fromNamespaceAndPath(MOD_ID, path);
     }
 
     private record EssenceAssignment(AEItemKey key, int count) {
@@ -575,13 +665,16 @@ public final class AwakeningAltarAdapter implements MultiblockAdapter {
     }
 
     /** Opaque binding handle returned from {@link #bind}. */
-    private record AwakeningBindHandle(Object recipe) {
+    private record AwakeningBindHandle(List<Object> recipes) {
     }
 
     private record SubSlots(List<BlockPos> pedestals, List<BlockPos> vessels) {
     }
 
     private static final class AwakeningReflection {
+        private static final org.slf4j.Logger LOG =
+                org.slf4j.LoggerFactory.getLogger("ae2ltpp/ma-awakening-reflection");
+
         private static final String ALTAR_CLASS =
                 "com.blakebr0.mysticalagriculture.tileentity.AwakeningAltarTileEntity";
         private static final String PEDESTAL_CLASS =
@@ -603,24 +696,37 @@ public final class AwakeningAltarAdapter implements MultiblockAdapter {
         private static volatile @Nullable Class<?> activatableClass;
         private static volatile @Nullable Method getInventoryMethod;
         private static volatile @Nullable Method activateMethod;
-        private static volatile @Nullable Method getAltarIngredientMethod;
+        private static volatile @Nullable Method isActiveMethod;
         private static volatile @Nullable Method getEssencesMethod;
-        private static volatile @Nullable Method getIngredientsMethod;
         private static volatile @Nullable Field progressField;
+
+        static boolean isReady() {
+            ensureLookup();
+            return altarClass != null
+                    && pedestalClass != null
+                    && vesselClass != null
+                    && recipeApiClass != null
+                    && activatableClass != null
+                    && getInventoryMethod != null
+                    && activateMethod != null
+                    && isActiveMethod != null
+                    && getEssencesMethod != null
+                    && progressField != null;
+        }
 
         static boolean isAwakeningAltar(Object o) {
             ensureLookup();
-            return altarClass != null && altarClass.isInstance(o);
+            return altarClass != null && isReady() && altarClass.isInstance(o);
         }
 
         static boolean isAwakeningPedestal(Object o) {
             ensureLookup();
-            return pedestalClass != null && pedestalClass.isInstance(o);
+            return pedestalClass != null && isReady() && pedestalClass.isInstance(o);
         }
 
         static boolean isEssenceVessel(Object o) {
             ensureLookup();
-            return vesselClass != null && vesselClass.isInstance(o);
+            return vesselClass != null && isReady() && vesselClass.isInstance(o);
         }
 
         @Nullable
@@ -640,42 +746,48 @@ public final class AwakeningAltarAdapter implements MultiblockAdapter {
         static int getProgress(BlockEntity be) {
             ensureLookup();
             if (progressField == null) {
-                return 0;
+                return Integer.MAX_VALUE;
             }
             try {
                 return progressField.getInt(be);
             } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
-                return 0;
+                return Integer.MAX_VALUE;
             }
         }
 
-        static void activate(ServerLevel level, BlockPos pos) {
+        static void activateOrThrow(ServerLevel level, BlockPos pos) {
             ensureLookup();
-            if (activateMethod == null) {
-                return;
-            }
             var be = level.getBlockEntity(pos);
-            if (be == null || activatableClass == null || !activatableClass.isInstance(be)) {
-                return;
+            if (activateMethod == null
+                    || isActiveMethod == null
+                    || activatableClass == null
+                    || be == null
+                    || !activatableClass.isInstance(be)) {
+                throw new DispatchCommitException("MA awakening activation API is unavailable");
             }
             try {
                 activateMethod.invoke(be);
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+                if (!Boolean.TRUE.equals(isActiveMethod.invoke(be))) {
+                    throw new DispatchCommitException("MA awakening altar remained inactive");
+                }
+            } catch (DispatchCommitException e) {
+                throw e;
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+                throw new DispatchCommitException("MA awakening activation failed: " + e);
             }
         }
 
-        @Nullable
-        static Ingredient getAltarIngredient(Object recipe) {
+        static boolean isDefinitelyInactive(BlockEntity be) {
             ensureLookup();
-            if (getAltarIngredientMethod == null || recipeApiClass == null
-                    || !recipeApiClass.isInstance(recipe)) {
-                return null;
+            if (isActiveMethod == null
+                    || activatableClass == null
+                    || !activatableClass.isInstance(be)) {
+                return false;
             }
             try {
-                var value = getAltarIngredientMethod.invoke(recipe);
-                return value instanceof Ingredient ing ? ing : null;
+                return Boolean.FALSE.equals(isActiveMethod.invoke(be));
             } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
-                return null;
+                return false;
             }
         }
 
@@ -708,24 +820,26 @@ public final class AwakeningAltarAdapter implements MultiblockAdapter {
         @Nullable
         @SuppressWarnings("unchecked")
         static List<Ingredient> getIngredients(Object recipe) {
+            // Direct vanilla-interface dispatch instead of reflection:
+            // getIngredients() overrides a net.minecraft method, so a
+            // production (reobfuscated) jar renames the implementing method
+            // to its SRG name and lookups by the mojmap name fail even
+            // though the method exists. Calling through the erased Recipe
+            // interface is compile-time-reobfuscated on our side and
+            // therefore always resolves.
             ensureLookup();
-            if (getIngredientsMethod == null || !(recipe instanceof net.minecraft.world.item.crafting.Recipe<?>)) {
+            if (!isReady() || !recipeApiClass.isInstance(recipe)
+                    || !(recipe instanceof net.minecraft.world.item.crafting.Recipe<?> vanillaRecipe)) {
                 return null;
             }
             try {
-                var value = getIngredientsMethod.invoke(recipe);
-                if (!(value instanceof List<?> list)) {
-                    return null;
-                }
-                var result = new ArrayList<Ingredient>(list.size());
-                for (var item : list) {
-                    if (!(item instanceof Ingredient ingredient)) {
-                        return null;
-                    }
+                var value = vanillaRecipe.getIngredients();
+                var result = new ArrayList<Ingredient>(value.size());
+                for (Ingredient ingredient : value) {
                     result.add(ingredient);
                 }
                 return result;
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+            } catch (RuntimeException | LinkageError ignored) {
                 return null;
             }
         }
@@ -738,32 +852,87 @@ public final class AwakeningAltarAdapter implements MultiblockAdapter {
                 if (lookupDone) {
                     return;
                 }
-                try {
-                    doLookup();
-                } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
-                } finally {
-                    lookupDone = true;
-                }
+                doLookup();
+                lookupDone = true;
             }
         }
 
-        private static void doLookup() throws ReflectiveOperationException {
-            altarClass = Class.forName(ALTAR_CLASS);
-            pedestalClass = Class.forName(PEDESTAL_CLASS);
-            vesselClass = Class.forName(VESSEL_CLASS);
-            recipeApiClass = Class.forName(AWAKENING_RECIPE_API_CLASS);
-            activatableClass = Class.forName(ACTIVATABLE_CLASS);
+        private static void doLookup() {
+            altarClass = tryClass(ALTAR_CLASS);
+            pedestalClass = tryClass(PEDESTAL_CLASS);
+            vesselClass = tryClass(VESSEL_CLASS);
+            recipeApiClass = tryClass(AWAKENING_RECIPE_API_CLASS);
+            activatableClass = tryClass(ACTIVATABLE_CLASS);
 
-            var baseInventoryClass = Class.forName(BASE_INVENTORY_CLASS);
-            getInventoryMethod = baseInventoryClass.getMethod("getInventory");
+            var baseInventoryClass = tryClass(BASE_INVENTORY_CLASS);
+            if (baseInventoryClass != null) {
+                getInventoryMethod = tryMethod(baseInventoryClass, "getInventory");
+            }
+            if (activatableClass != null) {
+                activateMethod = tryMethod(activatableClass, "activate");
+                isActiveMethod = tryMethod(activatableClass, "isActive");
+            }
+            if (recipeApiClass != null) {
+                getEssencesMethod = tryMethod(recipeApiClass, "getEssences");
+            }
+            // getIngredients is NOT resolved reflectively: it overrides a
+            // vanilla Recipe method and is renamed to its SRG name in a
+            // production jar. getIngredients(...) calls the vanilla
+            // interface directly instead, which is reobf-safe.
+            if (altarClass != null) {
+                progressField = tryField(altarClass, "progress");
+            }
 
-            activateMethod = activatableClass.getMethod("activate");
-            getAltarIngredientMethod = recipeApiClass.getMethod("getAltarIngredient");
-            getEssencesMethod = recipeApiClass.getMethod("getEssences");
-            getIngredientsMethod = net.minecraft.world.item.crafting.Recipe.class.getMethod("getIngredients");
+            LOG.info("MA awakening reflection ready: ready={} altar={} pedestal={} vessel={} recipe={} activatable={} inventory={} activate={} isActive={} ingredients=vanilla essences={} progress={}",
+                    altarClass != null && pedestalClass != null && vesselClass != null
+                            && recipeApiClass != null && activatableClass != null
+                            && getInventoryMethod != null && activateMethod != null
+                            && isActiveMethod != null && getEssencesMethod != null
+                            && progressField != null,
+                    altarClass != null,
+                    pedestalClass != null,
+                    vesselClass != null,
+                    recipeApiClass != null,
+                    activatableClass != null,
+                    getInventoryMethod != null,
+                    activateMethod != null,
+                    isActiveMethod != null,
+                    getEssencesMethod != null,
+                    progressField != null);
+        }
 
-            progressField = altarClass.getDeclaredField("progress");
-            progressField.setAccessible(true);
+        @Nullable
+        private static Class<?> tryClass(String name) {
+            try {
+                return Class.forName(name);
+            } catch (ClassNotFoundException | RuntimeException | LinkageError e) {
+                LOG.warn("MA awakening class lookup failed: {} ({})", name, e.toString());
+                return null;
+            }
+        }
+
+        @Nullable
+        private static Method tryMethod(Class<?> declaring, String name, Class<?>... params) {
+            try {
+                return declaring.getMethod(name, params);
+            } catch (NoSuchMethodException | RuntimeException | LinkageError e) {
+                LOG.warn("MA awakening method lookup failed: {}#{} ({})",
+                        declaring.getName(), name, e.toString());
+                return null;
+            }
+        }
+
+        @Nullable
+        private static Field tryField(Class<?> declaring, String name) {
+            try {
+                var field = declaring.getDeclaredField(name);
+                field.setAccessible(true);
+                return field;
+            } catch (NoSuchFieldException | RuntimeException | LinkageError e) {
+                LOG.warn("MA awakening field lookup failed: {}#{} ({})",
+                        declaring.getName(), name, e.toString());
+                return null;
+            }
         }
     }
 }

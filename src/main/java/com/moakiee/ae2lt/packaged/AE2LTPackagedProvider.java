@@ -4,6 +4,7 @@ import com.mojang.logging.LogUtils;
 import org.slf4j.Logger;
 
 import net.minecraftforge.eventbus.api.IEventBus;
+import net.minecraftforge.fml.ModLoadingContext;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
@@ -47,8 +48,10 @@ public class AE2LTPackagedProvider {
     public static final String MODID = "ae2ltpp";
     private static final Logger LOGGER = LogUtils.getLogger();
 
+    @SuppressWarnings("removal")
     public AE2LTPackagedProvider() {
-        IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
+        IEventBus modEventBus = ((FMLJavaModLoadingContext) ModLoadingContext.get().extension())
+                .getModEventBus();
 
         PPItems.ITEMS.register(modEventBus);
         PPBlocks.BLOCKS.register(modEventBus);

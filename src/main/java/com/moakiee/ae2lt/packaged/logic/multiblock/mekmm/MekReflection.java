@@ -2,6 +2,8 @@ package com.moakiee.ae2lt.packaged.logic.multiblock.mekmm;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
 
 import com.mojang.logging.LogUtils;
 import org.jetbrains.annotations.Nullable;
@@ -32,7 +34,10 @@ final class MekReflection {
     private static volatile @Nullable Class<?> boundingBlockClass;
     private static volatile @Nullable Method isActiveMethod;
     private static volatile @Nullable Method getMainPosMethod;
-    private static volatile @Nullable Object chemicalBlockCapability;
+    // 1.20.x Mekanism splits chemicals into four per-type Forge capabilities
+    // (mekanism.common.capabilities.Capabilities); the unified CHEMICAL
+    // capability only exists on 1.21+.
+    private static final List<Object> chemicalBlockCapabilities = new ArrayList<>();
     private static volatile @Nullable Class<?> chemicalHandlerClass;
     private static volatile @Nullable Class<?> chemicalStackClass;
     private static volatile @Nullable Class<?> actionClass;
@@ -45,6 +50,8 @@ final class MekReflection {
     private static volatile @Nullable Method chemicalGetAmountMethod;
     private static volatile @Nullable Method chemicalIsEmptyMethod;
     private static volatile @Nullable Method chemicalCopyWithAmountMethod;
+    private static volatile @Nullable Method chemicalCopyMethod;
+    private static volatile @Nullable Method chemicalSetAmountMethod;
 
     private MekReflection() {}
 
@@ -104,21 +111,24 @@ final class MekReflection {
     @Nullable
     static <T> T getChemicalHandler(ServerLevel level, BlockPos pos, Direction side) {
         ensureLookup();
-        if (chemicalBlockCapability == null) {
-            LOG.debug("[ae2ltpp] getChemicalHandler: chemicalBlockCapability is null");
+        List<Object> capabilities = chemicalBlockCapabilities;
+        if (capabilities.isEmpty()) {
+            LOG.debug("[ae2ltpp] getChemicalHandler: no chemical capabilities resolved");
             return null;
         }
-        try {
-            var cap = (Capability<T>) chemicalBlockCapability;
-            T result = BlockCapabilities.find(level, pos, cap, side);
-            if (result == null) {
-                LOG.debug("[ae2ltpp] getChemicalHandler: no handler at {} side {}", pos, side);
+        for (Object capability : capabilities) {
+            try {
+                var cap = (Capability<T>) capability;
+                T result = BlockCapabilities.find(level, pos, cap, side);
+                if (result != null) {
+                    return result;
+                }
+            } catch (RuntimeException | LinkageError e) {
+                LOG.debug("[ae2ltpp] getChemicalHandler: exception at {} side {}: {}",
+                        pos, side, e.getMessage());
             }
-            return result;
-        } catch (RuntimeException | LinkageError e) {
-            LOG.debug("[ae2ltpp] getChemicalHandler: exception at {} side {}: {}", pos, side, e.getMessage());
-            return null;
         }
+        return null;
     }
 
     static long insertChemical(Object handler, Object chemicalStack, boolean simulate) {
@@ -191,9 +201,20 @@ final class MekReflection {
     @Nullable
     static Object copyChemicalWithAmount(@Nullable Object chemicalStack, long amount) {
         ensureLookup();
-        if (chemicalStack == null || chemicalCopyWithAmountMethod == null) return null;
+        if (chemicalStack == null) return null;
+        if (chemicalCopyWithAmountMethod != null) {
+            try {
+                return chemicalCopyWithAmountMethod.invoke(chemicalStack, amount);
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+            }
+        }
+        // 1.20.x has no copyWithAmount; copy() + setAmount(long) is equivalent.
+        if (chemicalCopyMethod == null || chemicalSetAmountMethod == null) return null;
         try {
-            return chemicalCopyWithAmountMethod.invoke(chemicalStack, amount);
+            Object copy = chemicalCopyMethod.invoke(chemicalStack);
+            if (copy == null) return null;
+            chemicalSetAmountMethod.invoke(copy, amount);
+            return copy;
         } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
             return null;
         }
@@ -237,48 +258,102 @@ final class MekReflection {
             if (capabilitiesClass == null) {
                 throw new ClassNotFoundException("mekanism.common.capabilities.Capabilities");
             }
-            Field chemicalField = capabilitiesClass.getField("CHEMICAL");
-            Object chemicalCapability = chemicalField.get(null);
-            chemicalBlockCapability = resolveBlockCapability(chemicalCapability);
-            if (chemicalBlockCapability == null) {
-                LOG.warn("[ae2ltpp] Resolved Mekanism CHEMICAL field, but it did not expose a Forge Capability: {}",
-                        chemicalCapability == null ? "null" : chemicalCapability.getClass().getName());
-            } else {
-                LOG.debug("[ae2ltpp] Resolved CHEMICAL block capability: {}", chemicalBlockCapability);
+            // 1.20.x exposes one Forge capability per chemical type; resolve all
+            // four so handlers of any type are found (fields are missing on other
+            // versions, which just shrinks the list).
+            for (String fieldName : new String[] {"GAS_HANDLER", "INFUSION_HANDLER", "PIGMENT_HANDLER", "SLURRY_HANDLER"}) {
+                try {
+                    Field chemicalField = capabilitiesClass.getField(fieldName);
+                    Object chemicalCapability = chemicalField.get(null);
+                    Object blockCapability = resolveBlockCapability(chemicalCapability);
+                    if (blockCapability != null) {
+                        chemicalBlockCapabilities.add(blockCapability);
+                    } else {
+                        LOG.warn("[ae2ltpp] Resolved Mekanism {} field, but it did not expose a Forge Capability: {}",
+                                fieldName, chemicalCapability == null ? "null" : chemicalCapability.getClass().getName());
+                    }
+                } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+                    LOG.warn("[ae2ltpp] Failed to resolve Mekanism chemical capability {}: {}", fieldName, e.getMessage());
+                }
+            }
+            if (chemicalBlockCapabilities.isEmpty()) {
+                LOG.warn("[ae2ltpp] No Mekanism chemical capability resolved; chemical dispatch disabled");
             }
         } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
-            LOG.warn("[ae2ltpp] Failed to resolve Mekanism CHEMICAL capability: {}", e.getMessage());
+            LOG.warn("[ae2ltpp] Failed to resolve Mekanism chemical capabilities: {}", e.getMessage());
         }
 
-        try {
-            chemicalHandlerClass = ReflectionSupport.findClassCached("mekanism.api.chemical.IChemicalHandler")
-                    .orElse(null);
-            chemicalStackClass = ReflectionSupport.findClassCached("mekanism.api.chemical.ChemicalStack")
-                    .orElse(null);
+        // Each member resolves independently so one missing name (version drift)
+        // cannot take the whole chemical API down.
+        chemicalHandlerClass = ReflectionSupport.findClassCached("mekanism.api.chemical.IChemicalHandler")
+                .orElse(null);
+        chemicalStackClass = ReflectionSupport.findClassCached("mekanism.api.chemical.ChemicalStack")
+                .orElse(null);
 
+        try {
             actionClass = ReflectionSupport.findClassCached("mekanism.api.Action").orElse(null);
             Object[] actions = actionClass.getEnumConstants();
             for (Object a : actions) {
                 if (a.toString().equals("SIMULATE")) actionSimulate = a;
                 else if (a.toString().equals("EXECUTE")) actionExecute = a;
             }
+        } catch (RuntimeException | LinkageError e) {
+            LOG.warn("[ae2ltpp] Failed to resolve Mekanism Action constants: {}", e.getMessage());
+        }
 
-            insertChemicalMethod = chemicalHandlerClass.getMethod("insertChemical", chemicalStackClass, actionClass);
-            extractChemicalMethod = chemicalHandlerClass.getMethod("extractChemical", long.class, actionClass);
-            getChemicalInTankMethod = chemicalHandlerClass.getMethod("getChemicalInTank", int.class);
-            getChemicalTanksMethod = chemicalHandlerClass.getMethod("getChemicalTanks");
+        if (chemicalHandlerClass != null && chemicalStackClass != null) {
+            insertChemicalMethod = tryMethod(chemicalHandlerClass, "insertChemical", chemicalStackClass, actionClass);
+            extractChemicalMethod = tryMethod(chemicalHandlerClass, "extractChemical", long.class, actionClass);
+            getChemicalInTankMethod = tryMethod(chemicalHandlerClass, "getChemicalInTank", int.class);
+            // 1.20.x names this getTanks(); getChemicalTanks() only exists on
+            // 1.21+.
+            getChemicalTanksMethod = tryMethod(chemicalHandlerClass, "getTanks");
+            if (getChemicalTanksMethod == null) {
+                getChemicalTanksMethod = tryMethod(chemicalHandlerClass, "getChemicalTanks");
+            }
+            if (insertChemicalMethod == null || extractChemicalMethod == null
+                    || getChemicalInTankMethod == null || getChemicalTanksMethod == null) {
+                LOG.warn("[ae2ltpp] Incomplete IChemicalHandler resolution: insert={}, extract={}, getInTank={}, tankCount={}",
+                        insertChemicalMethod != null, extractChemicalMethod != null,
+                        getChemicalInTankMethod != null, getChemicalTanksMethod != null);
+            }
+        } else {
+            LOG.warn("[ae2ltpp] Failed to load chemical API classes: handler={}, stack={}",
+                    chemicalHandlerClass, chemicalStackClass);
+        }
 
-            chemicalGetAmountMethod = chemicalStackClass.getMethod("getAmount");
-            chemicalIsEmptyMethod = chemicalStackClass.getMethod("isEmpty");
-            chemicalCopyWithAmountMethod = chemicalStackClass.getMethod("copyWithAmount", long.class);
-            LOG.debug("[ae2ltpp] Resolved all chemical handler methods");
-        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
-            LOG.warn("[ae2ltpp] Failed to resolve chemical handler API: {}", e.getMessage());
+        if (chemicalStackClass != null) {
+            chemicalGetAmountMethod = tryMethod(chemicalStackClass, "getAmount");
+            chemicalIsEmptyMethod = tryMethod(chemicalStackClass, "isEmpty");
+            chemicalCopyWithAmountMethod = tryMethod(chemicalStackClass, "copyWithAmount", long.class);
+            chemicalCopyMethod = tryMethod(chemicalStackClass, "copy");
+            chemicalSetAmountMethod = tryMethod(chemicalStackClass, "setAmount", long.class);
+            if (chemicalGetAmountMethod == null || chemicalIsEmptyMethod == null
+                    || (chemicalCopyWithAmountMethod == null
+                        && (chemicalCopyMethod == null || chemicalSetAmountMethod == null))) {
+                LOG.warn("[ae2ltpp] Incomplete ChemicalStack resolution: amount={}, empty={}, copyWithAmount={}, copy={}, setAmount={}",
+                        chemicalGetAmountMethod != null, chemicalIsEmptyMethod != null,
+                        chemicalCopyWithAmountMethod != null, chemicalCopyMethod != null,
+                        chemicalSetAmountMethod != null);
+            }
         }
     }
 
     @Nullable
     private static Object resolveBlockCapability(@Nullable Object capabilityCarrier) {
         return MekCapabilityReflection.resolveBlock(capabilityCarrier, Capability.class);
+    }
+
+    @Nullable
+    private static Method tryMethod(@Nullable Class<?> declaring, @Nullable String name, @Nullable Class<?>... parameterTypes) {
+        if (declaring == null || name == null || parameterTypes == null) return null;
+        for (Class<?> parameterType : parameterTypes) {
+            if (parameterType == null) return null;
+        }
+        try {
+            return declaring.getMethod(name, parameterTypes);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+            return null;
+        }
     }
 }
